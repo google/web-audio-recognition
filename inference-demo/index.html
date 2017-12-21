@@ -1,0 +1,114 @@
+<!doctype html>
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <title>Audio Recognition: Inference Demo</title>
+    <meta name="author" content="Boris Smus">
+    <link rel="stylesheet"
+      href="https://unpkg.com/material-components-web@latest/dist/material-components-web.min.css">
+    <link href="https://fonts.googleapis.com/css?family=Roboto:300,400,500" rel="stylesheet">
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <style>
+
+body {
+  font-family: 'Roboto', sans-serif;
+}
+
+.middle-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: row;
+  width: 100%;
+  height: 100%;
+  position: absolute;
+  left: 0;
+  top: 0;
+}
+.middle-center .inner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  width: 80%;
+  margin-top: -10%;
+}
+
+#command {
+  font-size: 5em;
+  text-align: center;
+}
+#score {
+  font-size: 1em;
+  text-align: center;
+}
+
+#results.hide {
+  transition: opacity 2s ease-in-out;
+  opacity: 0;
+}
+#results.show {
+  opacity: 1;
+}
+
+#load-file-label {
+  position: absolute;
+  right: 0;
+}
+
+#message {
+  font-size: 2em;
+  color: #ccc;
+}
+
+#levels {
+  display: none;
+  position: absolute;
+  margin: 1em;
+  bottom: 0;
+}
+    </style>
+
+    <!--[if lt IE 9]>
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/html5shiv/3.7.3/html5shiv.js"></script>
+    <![endif]-->
+  </head>
+
+  <body>
+    <div id="levels">
+    </div>
+
+    <div class="mdc-switch">
+      <input type="checkbox" id="stream" class="mdc-switch__native-control" />
+      <div class="mdc-switch__background">
+        <div class="mdc-switch__knob"></div>
+      </div>
+    </div>
+    <label for="basic-switch" class="mdc-switch-label">Running</label>
+
+
+    <div class="middle-center">
+      <div class="inner">
+        <div id="message"></div>
+        <div id="results" class="hide">
+          <div id="command">placeholder</div>
+          <div id="score">0</div>
+        </div>
+      </div>
+    </div>
+
+    <button id="load-file-label" class="mdc-button mdc-button--raised">
+      <label for="load-file">Load weights (file)...</label>
+    </button>
+    <input id="load-file" name="load-file" accept="application/json"
+                                           type='file' style="display: none"/>
+
+    <script src="https://unpkg.com/material-components-web@latest/dist/material-components-web.min.js"></script>
+    <script>mdc.autoInit()</script>
+    <script src="dist/bundle.js"></script>
+  </body>
+</html>
+

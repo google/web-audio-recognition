@@ -1,0 +1,25 @@
+{
+  "name": "webaudio-ml",
+  "version": "1.0.0",
+  "description": "Web Audio feature extraction",
+  "main": "webpack.config.js",
+  "scripts": {
+    "start": "webpack --watch"
+  },
+  "author": "Boris Smus <boris@smus.com> (http://smus.com)",
+  "license": "ISC",
+  "dependencies": {
+    "@types/node": "^8.0.50",
+    "dct": "^0.0.3",
+    "eventemitter3": "^2.0.3",
+    "fft": "^0.2.1",
+    "kissfft-js": "^0.1.4",
+    "node-wav": "0.0.2"
+  },
+  "devDependencies": {
+    "awesome-typescript-loader": "^3.2.3",
+    "source-map-loader": "^0.2.1",
+    "typescript": "^2.4.2",
+    "webpack-livereload-plugin": "^0.11.0"
+  }
+}

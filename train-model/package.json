@@ -1,0 +1,22 @@
+{
+  "name": "speech-commands-web",
+  "version": "1.0.0",
+  "description": "Web Audio + TF demos",
+  "main": "webpack.config.js",
+  "scripts": {
+    "start": "webpack --watch"
+  },
+  "author": "Boris Smus <boris@smus.com> (http://smus.com)",
+  "license": "ISC",
+  "dependencies": {
+    "deeplearn": "^0.3.7",
+    "eventemitter3": "^2.0.3",
+    "tab64": "0.0.1"
+  },
+  "devDependencies": {
+    "awesome-typescript-loader": "^3.3.0",
+    "source-map-loader": "^0.2.3",
+    "typescript": "^2.6.1",
+    "webpack-livereload-plugin": "^1.0.0"
+  }
+}

@@ -1,0 +1,91 @@
+<!doctype html>
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <title>Audio Recognition: Train Model</title>
+    <meta name="author" content="Boris Smus">
+    <link rel="stylesheet"
+      href="https://unpkg.com/material-components-web@latest/dist/material-components-web.min.css">
+    <link href="https://fonts.googleapis.com/css?family=Roboto:300,400,500" rel="stylesheet">
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <style>
+
+body {
+  font-family: 'Roboto', sans-serif;
+}
+
+.plot {
+  border: 1px solid #ccc;
+}
+
+.action-buttons {
+  float: left;
+}
+
+.serialize-buttons {
+  float: right;
+}
+
+#out {
+  clear: both;
+  padding: 12px;
+}
+    </style>
+
+    <!--[if lt IE 9]>
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/html5shiv/3.7.3/html5shiv.js"></script>
+    <![endif]-->
+  </head>
+
+  <body>
+    <div id="progress-bar" role="progressbar" class="mdc-linear-progress">
+      <div class="mdc-linear-progress__buffering-dots"></div>
+      <div class="mdc-linear-progress__buffer" style="transform: scaleX(0);"></div>
+      <div class="mdc-linear-progress__bar mdc-linear-progress__primary-bar" style="transform: scaleX(0);">
+        <span class="mdc-linear-progress__bar-inner"></span>
+      </div>
+      <div class="mdc-linear-progress__bar mdc-linear-progress__secondary-bar">
+        <span class="mdc-linear-progress__bar-inner"></span>
+      </div>
+    </div>
+    <figcaption id="progress-label"></figcaption>
+
+    <div class="action-buttons">
+      <button id="train" class="mdc-button mdc-button--raised">Train</button>
+      <button class="mdc-button mdc-button--raised">
+        <label for="predict">Predict...</label>
+      </button>
+      <br/>
+      <input id="predict" type="file" accept="audio/*" style="display: none"/>
+      <button id="stream" class="mdc-button mdc-button--raised">Stream</button>
+      <button id="plot" class="mdc-button mdc-button--raised">Plot example</button>
+    </div>
+
+    <div class="serialize-buttons">
+      <button id="save" class="mdc-button mdc-button--raised">
+        Save weights (local)
+      </button>
+      <button id="load" class="mdc-button mdc-button--raised">
+        Load weights (local)
+      </button>
+      <br/>
+      <button id="save-file" class="mdc-button mdc-button--raised">
+        Save weights (file)
+      </button>
+      <button class="mdc-button mdc-button--raised">
+        <label for="load-file">Load weights (file)...</label>
+      </button>
+      <input id="load-file" name="load-file" accept="application/json"
+                                             type='file' style="display: none"/>
+    </div>
+
+    <div id="out"></div>
+    <script src="https://unpkg.com/material-components-web@latest/dist/material-components-web.min.js"></script>
+    <script>mdc.autoInit()</script>
+    <script src="dist/bundle.js"></script>
+  </body>
+</html>
+

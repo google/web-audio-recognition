@@ -1,0 +1,40 @@
+<!doctype html>
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <title>Audio Recognition: Audio Features</title>
+    <meta name="author" content="Boris Smus">
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <link href="https://fonts.googleapis.com/css?family=Roboto:300,400,500" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/material-components-web@latest/dist/material-components-web.min.css">
+    <!--[if lt IE 9]>
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/html5shiv/3.7.3/html5shiv.js"></script>
+    <![endif]-->
+  </head>
+
+  <body>
+    <div style="float: left">
+      <button id="play" class="mdc-button mdc-button--raised">Play</button>
+      <button id="download" class="mdc-button mdc-button--raised">Download MFCC Image</button>
+    </div>
+
+    <div style="float: right">
+      <button id="stream" class="mdc-button mdc-button--raised">Stream</button>
+      <button class="mdc-button mdc-button--raised">
+        <label for="load">Load audio file...</label>
+      </button>
+      <input id="load" type="file" accept="audio/*" style="display: none"/>
+    </div>
+
+    <div id="out" style="clear: both;"></div>
+    <div id="live"></div>
+
+    <script src="https://unpkg.com/material-components-web@latest/dist/material-components-web.min.js"></script>
+    <script>mdc.autoInit()</script>
+    <script src="dist/bundle.js"></script>
+  </body>
+</html>
+
