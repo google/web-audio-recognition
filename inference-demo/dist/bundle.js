@@ -8414,7 +8414,7 @@ class CommandRecognizer extends __WEBPACK_IMPORTED_MODULE_0_eventemitter3__["Eve
     }
     loadWeights(modelUrl) {
         return __awaiter(this, void 0, void 0, function* () {
-            const response = yield fetch(modelUrl);
+            const response = yield fetch(modelUrl, { mode: 'no-cors' });
             const json = yield response.json();
             const weights = __webpack_require__.i(__WEBPACK_IMPORTED_MODULE_2__train_model_src_GraphSaverLoader__["b" /* loadGraphWeightsJSON */])(this.model.graph, json);
             this.model.createModel(weights);
