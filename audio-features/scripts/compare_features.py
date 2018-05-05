@@ -9,18 +9,22 @@ from subprocess import PIPE, Popen
 
 TEST_WAVS = ['../assets/aff582a1_nohash_4_44100.wav',
     '../assets/ffd2ba2f_nohash_4_44100.wav', '../assets/sine_1s_example.wav']
-TEST_WAVS = ['../assets/spoken_command_example_44100.wav']
-BUFFER_LENGTH = 1024
+TEST_WAVS = ['../assets/sine_1s_example.wav']
+TEST_WAVS = ['../test/test.wav']
+
+# Parameters for the onsets-and-frames model.
+SAMPLE_RATE = 16000
 HOP_LENGTH = 512
-SAMPLE_RATE = 44100.0
-MEL_COUNT = 20
+F_MIN = 500
+N_MELS = 229
 
 # Generate features from audioset/mel_features.py.
+# Generate features from librosa.
 # Genearte features from the web-based feature extractor.
 # Compare them to one another.
 
 def GenerateAudioSetFeatures(wav_path):
-  y, sr = librosa.load(wav_path)
+  y, sr = librosa.load(wav_path, sr=SAMPLE_RATE)
   spec = mel_features.log_mel_spectrogram(y,
       audio_sample_rate=SAMPLE_RATE,
       window_length_secs=BUFFER_LENGTH/SAMPLE_RATE,
@@ -28,17 +32,27 @@ def GenerateAudioSetFeatures(wav_path):
   return spec.T
 
 def GenerateLibrosaFeatures(wav_path):
-  y, sr = librosa.load(wav_path)
-  stft = librosa.stft(y, n_fft=BUFFER_LENGTH, hop_length=HOP_LENGTH)
-  D = np.abs(stft) ** 2
-  S = np.log(librosa.feature.melspectrogram(S=D, n_mels=MEL_COUNT))
-  return S
+  y, sr = librosa.load(wav_path, sr=SAMPLE_RATE)
+  #return np.abs(librosa.stft(y, hop_length=HOP_LENGTH))
 
+  mel = librosa.feature.melspectrogram(
+      y,
+      SAMPLE_RATE,
+      hop_length=HOP_LENGTH,
+      fmin=F_MIN,
+      n_mels=N_MELS).astype(np.float32)
 
-def GenerateWebAudioFeatures(wav_path):
-  p = Popen(['ts-node', 'web_audio_features.ts', wav_path],
-      stdin=PIPE, stdout=PIPE, stderr=PIPE)
+  #mel = librosa.power_to_db(mel)
+  return mel
+
+def GenerateWebFeatures(wav_path):
+  command = ['ts-node', 'web_audio_features.ts', '-i', wav_path,
+      '--hop_length', str(HOP_LENGTH),
+      '--n_mels', str(N_MELS), '--f_min', str(F_MIN)]
+  print(command)
+  p = Popen(command, stdin=PIPE, stdout=PIPE, stderr=PIPE)
   output, error = p.communicate()
+  print(output)
   data_string, shape_string = output.strip().split('\n')[-2:]
   data = np.array(data_string.split(',')).astype(float)
   shape = np.array(shape_string.split(',')).astype(int)
@@ -52,15 +66,15 @@ def PlotMelSpec(mel_spec, title):
   plt.colorbar(format='%+2.0f dB')
   plt.title('Mel spectrogram (%s)' % title)
   plt.tight_layout()
-  plt.show()
 
 for wav_path in TEST_WAVS:
   name = os.path.basename(wav_path)
   mel_librosa = GenerateLibrosaFeatures(wav_path)
-  mel_audioset = GenerateAudioSetFeatures(wav_path)
-  mel_webaudio = GenerateWebAudioFeatures(wav_path)
-  print('mel_librosa shape: %s\nmel_audioset shape: %s\nmel_webaudio: %s\n' %
-      (mel_librosa.shape, mel_audioset.shape, mel_webaudio.shape))
+  mel_webaudio = GenerateWebFeatures(wav_path)
+  print('mel_librosa shape: %s\nmel_webaudio: %s\n' %
+      (mel_librosa.shape, mel_webaudio.shape))
+  plt.subplot(2, 1, 1)
   PlotMelSpec(mel_librosa, 'librosa')
-  PlotMelSpec(mel_audioset, 'audioset')
-  PlotMelSpec(mel_webaudio, 'webaudio')
+  plt.subplot(2, 1, 2)
+  PlotMelSpec(mel_webaudio, 'web')
+  plt.show()

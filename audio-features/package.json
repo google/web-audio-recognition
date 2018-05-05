@@ -4,21 +4,28 @@
   "description": "Web Audio feature extraction",
   "main": "webpack.config.js",
   "scripts": {
-    "start": "webpack --watch"
+    "start": "webpack --watch",
+    "test": "mocha -r ts-node/register --reporter spec test/test.ts"
   },
   "author": "Boris Smus <boris@smus.com> (http://smus.com)",
-  "license": "ISC",
+  "license": "Apache-2.0",
   "dependencies": {
     "@types/node": "^8.0.50",
+    "argparse": "^1.0.10",
+    "audio-resampler": "^1.0.1",
     "dct": "^0.0.3",
     "eventemitter3": "^2.0.3",
-    "fft": "^0.2.1",
-    "kissfft-js": "^0.1.4",
+    "fft.js": "^4.0.3",
     "node-wav": "0.0.2"
   },
   "devDependencies": {
+    "@types/mocha": "^5.2.0",
     "awesome-typescript-loader": "^3.2.3",
+    "chai": "^4.1.2",
+    "chai-almost": "^1.0.1",
+    "mocha": "^5.1.1",
     "source-map-loader": "^0.2.1",
+    "ts-node": "^6.0.2",
     "typescript": "^2.4.2",
     "webpack-livereload-plugin": "^0.11.0"
   }

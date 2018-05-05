@@ -14,31 +14,44 @@
  * the License.
  */
 
-import AudioUtils from '../src/AudioUtils';
+import {spectrogram, melSpectrogram, powerToDb} from '../src/MelSpectrogram';
+import * as argparse from 'argparse';
 import * as fs from 'fs';
 import * as wav from 'node-wav';
 
-const args = process.argv;
-if (args.length != 3) {
-  console.error(`Usage: ts-node script.ts example.wav`);
-  process.exit(1);
-}
-const path = args[args.length - 1];
+const parser = new argparse.ArgumentParser({
+  version: '0.0.1',
+  addHelp: true,
+  description: 'Spectrogram generator'
+});
+parser.addArgument(['-i', '--input'], {
+  action: 'store', help: 'Input path', required: true});
+parser.addArgument('--hop_length', {
+  action: 'store', help: 'Hop length in samples', defaultValue: 1024});
+parser.addArgument('--n_mels', {
+  action: 'store', help: 'Number of mels', defaultValue: 20});
+parser.addArgument('--f_min', {
+  action: 'store', help: 'Minimum frequency (Hz)', defaultValue: 30});
+parser.addArgument('--sample_rate', {
+  action: 'store', help: 'Target sample rate (will resample if needed)',
+  defaultValue: 16000});
 
-const file = fs.readFileSync(path);
+const args = parser.parseArgs();
+
+const file = fs.readFileSync(args.input);
 console.log(`Loaded file of ${file.length} bytes.`);
 const result = wav.decode(file);
 const buffer = result.channelData[0];
 console.log(`Decoded audio buffer of ${buffer.length} samples at ${result.sampleRate} Hz.`);
 
-const bufferLength = 1024;
-const hopLength = 1024;
-const melCount = 20;
+const melSpec = melSpectrogram(buffer, {
+  sampleRate: Number(args.sample_rate),
+  hopLength: Number(args.hop_length),
+  nMels: Number(args.n_mels),
+  fMin: Number(args.f_min),
+});
 
-const stft = AudioUtils.stft(buffer, bufferLength, hopLength);
-const stftEnergies = stft.map(fft => AudioUtils.fftEnergies(fft));
-const logMel = AudioUtils.melSpectrogram(stftEnergies, melCount)
-
+const logMel = powerToDb(melSpec);
 const shape = [logMel.length, logMel[0].length];
 //console.log(`Generated log-mel spectrogram of shape ${logMel.length} x ${logMel[0].length}.`);
 

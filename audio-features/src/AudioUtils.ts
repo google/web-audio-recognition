@@ -15,6 +15,7 @@
  */
 import * as KissFFT from 'kissfft-js';
 import * as DCT from 'dct';
+import * as resampler from 'audio-resampler';
 
 const SR = 44100;
 
