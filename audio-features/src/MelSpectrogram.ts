@@ -190,7 +190,7 @@ export function createMelFilterbank(params: MelParams) : Float32Array[] {
   const melMin = hzToMel(fMin);
   const melMax = hzToMel(fMax);
 
-  // Construct linearly spaced array of melCount intervals, between melMin and
+  // Construct linearly spaced array of nMel intervals, between melMin and
   // melMax.
   const mels = linearSpace(melMin, melMax, nMels + 2);
   // Convert from mels to hz.
