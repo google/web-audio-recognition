@@ -45,9 +45,6 @@ describe('timeseries framing', () => {
   });
 });
 
-describe('mel filtering', () => {
-});
-
 describe('fft', () => {
   it('produces librosa compatible results in a simple case', () => {
     const arr = melspec.array([0, 1, 0, 0]);
@@ -91,7 +88,7 @@ describe('fft', () => {
     y = y.slice(0, 2048);
     const fft = melspec.fft(y);
     const fftMags = melspec.mag(fft);
-    expectArraysClose(fftMags, expected, 0.01);
+    expectArraysClose(fftMags.slice(1), expected.slice(1), 0.01);
   });
 });
 
@@ -100,21 +97,22 @@ describe('stft spectrogram', () => {
     const expected = loadArrayFromText('test/fft_window_256.txt');
     const win = melspec.hannWindow(256);
     //console.log(win, expected);
-    expectArraysClose(win, expected, 0.01);
+    expectArraysClose(win, expected, 0.1);
   });
 
   it('uses the same fft window (2048)', () => {
     const expected = loadArrayFromText('test/fft_window_2048.txt');
     const win = melspec.hannWindow(2048);
-    expectArraysClose(win, expected, 0.01);
+    expectArraysClose(win, expected, 0.1);
   });
 
   it('produces librosa compatible stft', () => {
     const expected = loadArrayFromText('test/stft_mags.txt');
     const y = loadWavData('test/test.wav');
     const spec = melspec.spectrogram(y, {sampleRate: 16000});
+    console.log(`spectrogram size ${spec.length} x ${spec[0].length}.`);
     const flatSpec = melspec.flatten2D(spec);
-    expectArraysClose(flatSpec, expected, 0.03);
+    expectArraysClose(flatSpec, expected, 0.1);
   });
 });
 
@@ -122,17 +120,38 @@ describe('stft spectrogram', () => {
 describe('mel spectrogram', () => {
   const SAMPLE_RATE = 16000
   const HOP_LENGTH = 512
-  const F_MIN = 500
+  const F_MIN = 30
   const N_MELS = 229
 
-  it('produces the right mel filterbank', () => {
+  it('produces the right mel filterbank (1 filter)', () => {
+    const expected = loadArrayFromText('test/mel_filter_1.txt');
+    const filter = melspec.createMelFilterbank({
+      sampleRate: SAMPLE_RATE,
+      fMin: F_MIN,
+      nMels: 1,
+    });
+    const flatFilter = melspec.flatten2D(filter);
+    expectArraysClose(flatFilter, expected, 0.03);
+  });
+
+  it('produces the right mel filterbank (2 filters)', () => {
+    const expected = loadArrayFromText('test/mel_filter_2.txt');
+    const filter = melspec.createMelFilterbank({
+      sampleRate: SAMPLE_RATE,
+      fMin: F_MIN,
+      nMels: 2,
+    });
+    const flatFilter = melspec.flatten2D(filter);
+    expectArraysClose(flatFilter, expected, 0.03);
+  });
+
+  it('produces the right mel filterbank (full filter)', () => {
     const expected = loadArrayFromText('test/mel_filter.txt');
     const filter = melspec.createMelFilterbank({
       sampleRate: SAMPLE_RATE,
       fMin: F_MIN,
       nMels: N_MELS,
     });
-    console.log([filter.length, filter[0].length]);
     const flatFilter = melspec.flatten2D(filter);
     expectArraysClose(flatFilter, expected, 0.03);
   });
@@ -146,6 +165,7 @@ describe('mel spectrogram', () => {
       fMin: F_MIN,
       nMels: N_MELS,
     });
+    console.log(spec[0]);
     const flatSpec = melspec.flatten2D(spec);
     expectArraysClose(flatSpec, expected, 0.03);
   });
@@ -156,6 +176,34 @@ describe('resampling', () => {
     expect([4, 2, 5]).to.be.deep.almost([3, 4, 7], 3)
     return assert(false);
   });
+});
+
+describe('utils', () => {
+  it('hzToMel works', () => {
+    // Expected values from librosa.hz_to_mel(440, htk=True).
+    expect(Math.round(melspec.hzToMel(440))).to.equal(549);
+  });
+
+  it('melToHz works', () => {
+    expect(melspec.melToHz(3)).to.almost.equal(1.869);
+  });
+
+  it('creates the right mel coeffs', () => {
+    const freqs = Array.from(melspec.calculateMelFreqs(3, 30, 8000));
+    expect(freqs.map(v => Math.floor(v))).to.deep.equal(
+      [30, 1820, 8000]);
+  });
+
+  it('outersubtracts properly', () => {
+    const a = melspec.array([1,2]);
+    const b = melspec.array([3,4,5]);
+    const res = melspec.outerSubtract(a, b);
+    expect(res.length == 2);
+    expect(res[0].length == 3);
+    const flatRes = Array.from(melspec.flatten2D(res));
+    expect(flatRes).to.deep.equal([-2, -1, -3, -2, -4, -3]);
+  });
+
 });
 
 function loadWavData(path: string) {
@@ -189,20 +237,31 @@ function max(arr) {
   return arr.reduce((a, b) => Math.max(a, b));
 }
 
-function expectArraysClose(arr, arr2, threshold=0.0001) {
+function expectArraysClose(arr, arr2, maxRelativeError=0.0001) {
   if (arr.length != arr2.length) {
     assert(false, `Array lengths are not equal: ${arr.length} != ${arr2.length}.`);
   }
-  const deltas = abs(sub(arr, arr2));
+
+  const errors = new Float32Array(arr.length);
+  for (let i = 0; i < arr.length; i++) {
+    const value = arr[i];
+    const groundTruth = arr2[i];
+    // If the value is too small, use absolute error.
+    if (Math.abs(groundTruth) < 1e-3) { //100 * Number.EPSILON) {
+      errors[i] = Math.abs(groundTruth - value);
+    } else {
+      errors[i] = Math.abs(1 - arr[i] / arr2[i]);
+    }
+  }
   const badInds = [];
-  for (let i = 0; i < deltas.length; i++) {
-    const val = deltas[i];
-    if (val > threshold) {
+  for (let i = 0; i < errors.length; i++) {
+    const val = errors[i];
+    if (val > maxRelativeError) {
+      //console.log(`[${i}] = ${arr[i]}, expected ${arr2[i]}. err: ${val}.`);
       badInds.push(i);
-      //console.error(`Item ${val} at index ${i} exceeds ${threshold}.`);
     }
   }
   if (badInds.length > 0) {
-    assert(false, `Indices ${badInds} exceed threshold ${threshold}.`);
+    assert(false, `Indices ${badInds} exceed relative error T ${maxRelativeError}.`);
   }
 }

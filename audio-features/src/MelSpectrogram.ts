@@ -20,12 +20,10 @@ interface MelParams {
 }
 
 
-export function magSpectrogram(stft: Float32Array[], power?: number) : [Float32Array[], number] {
-  if (!power) {
-    power = 2.0;
-  }
-  const spec = stft.map(fft => mag(fft, power));
-  const nFft = spec[0].length;
+export function magSpectrogram(stft: Float32Array[], power: number) : [Float32Array[], number] {
+  console.log(`magSpectrogram on ${stft.length} x ${stft[0].length} power=${power}`);
+  const spec = stft.map(fft => pow(mag(fft), power));
+  const nFft = stft[0].length - 1;
   return [spec, nFft];
 }
 
@@ -52,7 +50,7 @@ export function stft(y: Float32Array, params: SpecParams) : Float32Array[] {
   // How many columns can we fit within MAX_MEM_BLOCK?
   const width = yFrames.length;
   const height = nFft + 2;
-  //console.log(`Creating STFT matrix of size ${width} x ${height}.`);
+  console.log(`Creating STFT matrix of size ${width} x ${height}.`);
 
   for (let i = 0; i < width; i++) {
     // Each column is a Float32Array of size height.
@@ -71,12 +69,18 @@ export function stft(y: Float32Array, params: SpecParams) : Float32Array[] {
 }
 
 export function spectrogram(y: Float32Array, params: SpecParams) : Float32Array[] {
+  if (!params.power) {
+    params.power = 1;
+  }
   const stftMatrix = stft(y, params);
   const [spec, nFft] = magSpectrogram(stftMatrix, params.power);
   return spec;
 }
 
 export function melSpectrogram(y: Float32Array, params: SpecParams) : Float32Array[] {
+  if (!params.power) {
+    params.power = 2.0;
+  }
   const stftMatrix = stft(y, params);
   const [spec, nFft] = magSpectrogram(stftMatrix, params.power);
 
@@ -187,6 +191,44 @@ export function createMelFilterbank(params: MelParams) : Float32Array[] {
   const nMels = params.nMels || 128;
   const nFft = params.nFft || 2048;
 
+  // Center freqs of each FFT band.
+  const fftFreqs = calculateFftFreqs(params.sampleRate, nFft);
+  // (Pseudo) center freqs of each Mel band.
+  const melFreqs = calculateMelFreqs(nMels + 2, fMin, fMax);
+
+  const melDiff = internalDiff(melFreqs);
+  const ramps = outerSubtract(melFreqs, fftFreqs);
+  const filterSize = ramps[0].length;
+
+  const weights = [];
+  for (let i = 0; i < nMels; i++) {
+    weights[i] = new Float32Array(filterSize);
+    for (let j = 0; j < ramps[i].length; j++) {
+      const lower = -ramps[i][j] / melDiff[i];
+      const upper = ramps[i+2][j] / melDiff[i+1];
+      const weight = Math.max(0, Math.min(lower, upper));
+      weights[i][j] = weight;
+    }
+  }
+
+  // Slaney-style mel is scaled to be approx constant energy per channel.
+  for (let i = 0; i < weights.length; i++) {
+    // How much energy per channel.
+    const enorm = 2.0 / (melFreqs[2+i] - melFreqs[i]);
+    // Normalize by that amount.
+    weights[i] = weights[i].map(val => val * enorm);
+  }
+
+  console.log('mel filter length', weights[0].length);
+  return weights;
+}
+
+export function createMelFilterbankOld(params: MelParams) : Float32Array[] {
+  const fMin = params.fMin || 0;
+  const fMax = params.fMax || params.sampleRate / 2;
+  const nMels = params.nMels || 128;
+  const nFft = params.nFft || 2048;
+
   const melMin = hzToMel(fMin);
   const melMax = hzToMel(fMax);
 
@@ -268,8 +310,9 @@ export function range(count) : number[] {
 }
 
 export function linearSpace(start, end, count) {
-  const delta = (end - start) / (count + 1);
-  let out = [];
+  // Include start and endpoints.
+  const delta = (end - start) / (count - 1);
+  let out = new Float32Array(count);
   for (let i = 0; i < count; i++) {
     out[i] = start + delta * i;
   }
@@ -280,13 +323,10 @@ export function linearSpace(start, end, count) {
  * Given an interlaced complex array (y_i is real, y_(i+1) is imaginary),
  * calculates the energies. Output is half the size.
  */
-export function mag(y: Float32Array, pow?: number) {
-  if (!pow) {
-    pow = 2.0;
-  }
+export function mag(y: Float32Array) {
   let out = new Float32Array(y.length / 2);
   for (let i = 0; i < y.length / 2; i++) {
-    out[i] = Math.pow(y[i*pow]*y[i*pow] + y[i*pow + 1]*y[i*pow + 1], 1/pow);
+    out[i] = Math.sqrt(y[i*2]*y[i*2] + y[i*2 + 1]*y[i*2 + 1]);
   }
   return out;
 }
@@ -307,12 +347,12 @@ export function powerToDb(spec: Float32Array[]) {
   return spec;
 }
 
-function hzToMel(hz) {
-  return 1125 * Math.log(1 + hz/700);
+export function hzToMel(hz: number) : number {
+  return 1125.0 * Math.log(1 + hz/700.0);
 }
 
-function melToHz(mel) {
-  return 700 * (Math.exp(mel/1125) - 1);
+export function melToHz(mel: number) : number {
+  return 700.0 * (Math.exp(mel/1125.0) - 1);
 }
 
 function freqToBin(freq, nFft, sr) {
@@ -330,4 +370,44 @@ export function flatten2D(spec: Float32Array[]) {
     }
   }
   return out;
+}
+
+export function calculateFftFreqs(sampleRate: number, nFft: number) {
+  return linearSpace(0, sampleRate / 2, Math.floor(1 + nFft / 2));
+}
+
+export function calculateMelFreqs(nMels: number, fMin: number, fMax: number) : Float32Array {
+  const melMin = hzToMel(fMin);
+  const melMax = hzToMel(fMax);
+
+  // Construct linearly spaced array of nMel intervals, between melMin and
+  // melMax.
+  const mels = linearSpace(melMin, melMax, nMels);
+  const hzs = mels.map(mel => melToHz(mel));
+  return hzs;
+}
+
+export function internalDiff(arr: Float32Array) : Float32Array {
+  const out = new Float32Array(arr.length - 1);
+  for (let i = 0; i < arr.length; i++) {
+    out[i] = arr[i+1] - arr[i];
+  }
+  return out;
+}
+
+export function outerSubtract(arr: Float32Array, arr2: Float32Array) : Float32Array[] {
+  const out = [];
+  for (let i = 0; i < arr.length; i++) {
+    out[i] = new Float32Array(arr2.length);
+  }
+  for (let i = 0; i < arr.length; i++) {
+    for (let j = 0; j < arr2.length; j++) {
+      out[i][j] = arr[i] - arr2[j];
+    }
+  }
+  return out;
+}
+
+export function pow(arr: Float32Array, power: number) {
+  return arr.map(v => Math.pow(v, power));
 }

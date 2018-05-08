@@ -40,7 +40,8 @@ def GenerateLibrosaFeatures(wav_path):
       SAMPLE_RATE,
       hop_length=HOP_LENGTH,
       fmin=F_MIN,
-      n_mels=N_MELS).astype(np.float32)
+      n_mels=N_MELS,
+      htk=True).astype(np.float32)
 
   #mel = librosa.power_to_db(mel)
   return mel
