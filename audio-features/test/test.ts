@@ -110,7 +110,6 @@ describe('stft spectrogram', () => {
     const expected = loadArrayFromText('test/stft_mags.txt');
     const y = loadWavData('test/test.wav');
     const spec = melspec.spectrogram(y, {sampleRate: 16000});
-    console.log(`spectrogram size ${spec.length} x ${spec[0].length}.`);
     const flatSpec = melspec.flatten2D(spec);
     expectArraysClose(flatSpec, expected, 0.1);
   });
@@ -165,9 +164,22 @@ describe('mel spectrogram', () => {
       fMin: F_MIN,
       nMels: N_MELS,
     });
-    console.log(spec[0]);
     const flatSpec = melspec.flatten2D(spec);
     expectArraysClose(flatSpec, expected, 0.03);
+  });
+
+  it('produces librosa compatible log mel spec', () => {
+    const expected = loadArrayFromText('test/log_mel_mags.txt');
+    const y = loadWavData('test/test.wav');
+    const spec = melspec.melSpectrogram(y, {
+      sampleRate: SAMPLE_RATE,
+      hopLength: HOP_LENGTH,
+      fMin: F_MIN,
+      nMels: N_MELS,
+    });
+    const logMel = melspec.powerToDb(spec);
+    const flatSpec = melspec.flatten2D(logMel);
+    expectArraysClose(flatSpec, expected, 0.1);
   });
 });
 
@@ -231,10 +243,6 @@ function sub(arr, arr2) {
 
 function abs(arr) {
   return arr.map(val => Math.abs(val));
-}
-
-function max(arr) {
-  return arr.reduce((a, b) => Math.max(a, b));
 }
 
 function expectArraysClose(arr, arr2, maxRelativeError=0.0001) {

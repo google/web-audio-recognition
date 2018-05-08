@@ -21,7 +21,7 @@ interface MelParams {
 
 
 export function magSpectrogram(stft: Float32Array[], power: number) : [Float32Array[], number] {
-  console.log(`magSpectrogram on ${stft.length} x ${stft[0].length} power=${power}`);
+  //console.log(`magSpectrogram on ${stft.length} x ${stft[0].length} power=${power}`);
   const spec = stft.map(fft => pow(mag(fft), power));
   const nFft = stft[0].length - 1;
   return [spec, nFft];
@@ -47,10 +47,9 @@ export function stft(y: Float32Array, params: SpecParams) : Float32Array[] {
   // Pre-allocate the STFT matrix.
   const stftMatrix = [];
 
-  // How many columns can we fit within MAX_MEM_BLOCK?
   const width = yFrames.length;
   const height = nFft + 2;
-  console.log(`Creating STFT matrix of size ${width} x ${height}.`);
+  //console.log(`Creating STFT matrix of size ${width} x ${height}.`);
 
   for (let i = 0; i < width; i++) {
     // Each column is a Float32Array of size height.
@@ -219,7 +218,6 @@ export function createMelFilterbank(params: MelParams) : Float32Array[] {
     weights[i] = weights[i].map(val => val * enorm);
   }
 
-  console.log('mel filter length', weights[0].length);
   return weights;
 }
 
@@ -331,20 +329,33 @@ export function mag(y: Float32Array) {
   return out;
 }
 
-export function powerToDb(spec: Float32Array[]) {
-  // TODO: Implement me.
-  /*
-  log_spec = 10.0 * np.log10(np.maximum(amin, magnitude))
-  log_spec -= 10.0 * np.log10(np.maximum(amin, ref_value))
-
-  top_db = 0 
-        if (top_db < 0):
-            raise ParameterError('top_db must be non-negative')
-        log_spec = np.maximum(log_spec, log_spec.max() - top_db)
-
-    return log_spec
-   */
-  return spec;
+export function powerToDb(spec: Float32Array[], amin=1e-10, refValue=1.0, topDb=80.0) {
+  const width = spec.length;
+  const height = spec[0].length;
+  const logSpec = [];
+  for (let i = 0; i < width; i++) {
+    logSpec[i] = new Float32Array(height);
+  }
+  for (let i = 0; i < width; i++) {
+    for (let j = 0; j < height; j++) {
+      const val = spec[i][j];
+      let logVal = 10.0 * Math.log10(Math.max(amin, val));
+      logVal -= 10.0 * Math.log10(Math.max(amin, refValue));
+      logSpec[i][j] = logVal;
+    }
+  }
+  if (topDb) {
+    if (topDb < 0) {
+      throw new Error(`topDb must be non-negative.`);
+    }
+    for (let i = 0; i < width; i++) {
+      const maxVal = max(logSpec[i]);
+      for (let j = 0; j < height; j++) {
+        logSpec[i][j] = Math.max(logSpec[i][j], maxVal - topDb);
+      }
+    }
+  }
+  return logSpec;
 }
 
 export function hzToMel(hz: number) : number {
@@ -411,3 +422,8 @@ export function outerSubtract(arr: Float32Array, arr2: Float32Array) : Float32Ar
 export function pow(arr: Float32Array, power: number) {
   return arr.map(v => Math.pow(v, power));
 }
+
+export function max(arr) {
+  return arr.reduce((a, b) => Math.max(a, b));
+}
+

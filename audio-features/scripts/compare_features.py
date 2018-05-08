@@ -43,7 +43,7 @@ def GenerateLibrosaFeatures(wav_path):
       n_mels=N_MELS,
       htk=True).astype(np.float32)
 
-  #mel = librosa.power_to_db(mel)
+  mel = librosa.power_to_db(mel)
   return mel
 
 def GenerateWebFeatures(wav_path):
