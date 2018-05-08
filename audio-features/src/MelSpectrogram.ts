@@ -221,57 +221,12 @@ export function createMelFilterbank(params: MelParams) : Float32Array[] {
   return weights;
 }
 
-export function createMelFilterbankOld(params: MelParams) : Float32Array[] {
-  const fMin = params.fMin || 0;
-  const fMax = params.fMax || params.sampleRate / 2;
-  const nMels = params.nMels || 128;
-  const nFft = params.nFft || 2048;
-
-  const melMin = hzToMel(fMin);
-  const melMax = hzToMel(fMax);
-
-  // Construct linearly spaced array of nMel intervals, between melMin and
-  // melMax.
-  const mels = linearSpace(melMin, melMax, nMels + 2);
-  // Convert from mels to hz.
-  const hzs = mels.map(mel => melToHz(mel));
-  // Go from hz to the corresponding bin in the FFT.
-  const bins = hzs.map(hz => freqToBin(hz, nFft, params.sampleRate));
-
-  // Now that we have the start and end frequencies, create each triangular
-  // window (each value in [0, 1]) that we will apply to an FFT later. These
-  // are mostly sparse, except for the values of the triangle
-  const length = bins.length - 2;
-  const filters = [];
-  for (let i = 0; i < length; i++) {
-    // Now generate the triangles themselves.
-    filters[i] = triangleWindow(nFft, bins[i], bins[i+1], bins[i+2]);
-  }
-
-  return filters;
-}
-
 export function fft(y: Float32Array) {
   const fft = new FFT(y.length);
   const out = fft.createComplexArray();
   const data = fft.toComplexArray(y);
   fft.transform(out, data);
   return out;
-}
-
-export function triangleWindow(length, startIndex, peakIndex, endIndex) {
-  const win = new Float32Array(length);
-  const deltaUp = 1.0 / (peakIndex - startIndex);
-  for (let i = startIndex; i < peakIndex; i++) {
-    // Linear ramp up between start and peak index (values from 0 to 1).
-    win[i] = (i - startIndex) * deltaUp;
-  }
-  const deltaDown = 1.0 / (endIndex - peakIndex);
-  for (let i = peakIndex; i < endIndex; i++) {
-    // Linear ramp down between peak and end index (values from 1 to 0).
-    win[i] = 1 - (i - peakIndex) * deltaDown;
-  }
-  return win;
 }
 
 export function hannWindow(length: number) {

@@ -13,7 +13,6 @@
  * License for the specific language governing permissions and limitations under
  * the License.
  */
-import * as KissFFT from 'kissfft-js';
 import * as DCT from 'dct';
 import * as resampler from 'audio-resampler';
 
@@ -62,7 +61,7 @@ export default class AudioUtils {
    * Calculates the FFT for an array buffer. Output is an array.
    */
   static fft(y: Float32Array) {
-    const fftr = new KissFFT.FFTR(y.length);
+    const fftr = null;
     const transform = fftr.forward(y);
     fftr.dispose();
     return transform;

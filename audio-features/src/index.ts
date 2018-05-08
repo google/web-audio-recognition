@@ -15,6 +15,7 @@
  */
 
 import AudioUtils from './AudioUtils';
+import * as melspec from './MelSpectrogram';
 import StreamingFeatureExtractor from './StreamingFeatureExtractor';
 import {
   plotAudio, plotCoeffs, plotFFT, plotFilterbank, plotSpectrogram,
@@ -22,12 +23,12 @@ import {
   createLayout
 } from './PlotGraphs';
 
-const bufferLength = 1024;
-const hopLength = 512;
-const melCount = 40;
+const nFft = 2048;
+const hopLength = 1024;
+const nMels = 30;
 
 let arrayBuffer;
-let mfccSpec;
+let melSpec;
 
 const outEl = document.querySelector('#out');
 const streamEl = document.querySelector('#stream');
@@ -51,52 +52,34 @@ function analyzeArrayBuffer(buffer: Float32Array) {
   outEl.appendChild(audioEl);
 
   // Calculate FFT from ArrayBuffer.
-  const fft = AudioUtils.fft(arrayBuffer);
-  const fftEnergies = AudioUtils.fftEnergies(fft);
+  const bufferPow2 = arrayBuffer.slice(0, pow2LessThan(arrayBuffer.length));
+  const fft = melspec.fft(bufferPow2);
+  const fftEnergies = melspec.mag(fft);
   const fftEl = plotFFT(fftEnergies,
     createLayout('Frequency domain', 'frequency (Hz)', 'power (dB)', {logX: false}));
   outEl.appendChild(fftEl);
 
   // Calculate a Mel filterbank.
-  const melFilterbank = AudioUtils.createMelFilterbank(fftEnergies.length, melCount);
+  const melFilterbank = melspec.createMelFilterbank({
+    sampleRate: 44100,
+    nFft: bufferPow2.length,
+    nMels: 32,
+  });
   const melEl = plotFilterbank(melFilterbank,
     createLayout('Mel filterbank', 'frequency (Hz)', 'percent'));
   outEl.appendChild(melEl);
 
-  // Apply the Mel filterbank to that FFT output.
-  const melEnergies = AudioUtils.applyFilterbank(fftEnergies, melFilterbank);
-  const melCoeffEl = plotCoeffs(melEnergies,
-    createLayout('Mel coefficients', 'mel filter number', 'energy'));
-  outEl.appendChild(melCoeffEl);
-
-  // Calculate the MFCC from the Mel coefficients.
-  const mfcc = AudioUtils.cepstrumFromEnergySpectrum(melEnergies);
-  const mfccEl = plotCoeffs(mfcc.slice(0, 13), createLayout('Mel Frequency Cepstral ' +
-    'Coefficients (MFCC)', 'mel filter number', 'energy'));
-  outEl.appendChild(mfccEl);
-
   // Calculate STFT from the ArrayBuffer.
-  const stft = AudioUtils.stft(arrayBuffer, bufferLength, hopLength);
-
-  // Each STFT column is an FFT array which is interleaved complex. For STFT
-  // rendering, we want to show only the magnitudes.
-  const stftEnergies = stft.map(fft => AudioUtils.fftEnergies(fft));
-
+  const stftEnergies = melspec.spectrogram(arrayBuffer, {sampleRate: 44100});
   const specEl = plotSpectrogram(stftEnergies, hopLength,
     createLayout('STFT energy spectrogram', 'time (s)', 'frequency (Hz)', {logY: true}));
   outEl.appendChild(specEl);
 
   // Calculate mel energy spectrogram from STFT.
-  const melSpec = AudioUtils.melSpectrogram(stftEnergies, melCount);
+  melSpec = melspec.melSpectrogram(arrayBuffer, {sampleRate: 44100, nMels, hopLength, nFft});
   const melSpecEl = plotSpectrogram(melSpec, hopLength,
     createLayout('Mel energy spectrogram', 'time (s)', 'mel bin'));
   outEl.appendChild(melSpecEl);
-
-  // Calculate the MFCC spectrogram from the STFT.
-  mfccSpec = AudioUtils.mfccSpectrogram(stftEnergies, 13);
-  const mfccSpecEl = plotSpectrogram(mfccSpec, hopLength,
-    createLayout('MFCC spectrogram', 'time (s)', 'mfcc bin'));
-  outEl.appendChild(mfccSpecEl);
 }
 
 function main() {
@@ -118,8 +101,7 @@ const streamFeature = new StreamingFeatureExtractor({
   hopLength: 512,
   duration: 1,
   targetSr: 16000,
-  melCount: melCount,
-  isMfccEnabled: true,
+  nMels,
 });
 
 streamEl.addEventListener('click', e => {
@@ -137,8 +119,7 @@ streamEl.addEventListener('click', e => {
 
 downloadEl.addEventListener('click', e => {
   // Download the mel spectrogram.
-  AudioUtils.normalizeSpecInPlace(mfccSpec);
-  downloadSpectrogramImage(mfccSpec);
+  downloadSpectrogramImage(melSpec);
 });
 
 loadEl.addEventListener('change', function(e) {
@@ -150,3 +131,8 @@ loadEl.addEventListener('change', function(e) {
 playEl.addEventListener('click', e => {
   AudioUtils.playbackArrayBuffer(arrayBuffer);
 });
+
+function pow2LessThan(value: number) {
+  const exp = Math.log2(value);
+  return Math.pow(2, Math.floor(exp));
+}

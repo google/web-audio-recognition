@@ -17,6 +17,7 @@
 import AudioUtils from './AudioUtils';
 import CircularAudioBuffer from './CircularAudioBuffer';
 import {EventEmitter} from 'eventemitter3';
+import {MelFeatureNode} from './worklet/MelFeatureNode';
 
 const INPUT_BUFFER_LENGTH = 16384;
 
@@ -25,9 +26,8 @@ interface Params {
   bufferLength: number
   hopLength: number
   duration: number
-  melCount: number
+  nMels: number
   targetSr: number
-  isMfccEnabled: boolean
 }
 
 const audioCtx = new AudioContext();
@@ -53,13 +53,11 @@ export default class StreamingFeatureExtractor extends EventEmitter {
   // How many buffers to keep in the spectrogram.
   bufferCount: number
   // How many mel bins to use.
-  melCount: number
+  nMels: number
   // Number of samples to hop over for every new column.
   hopLength: number
   // How long the total duration is.
   duration: number
-  // Whether to use MFCC or Mel features.
-  isMfccEnabled: boolean
 
   // Where to store the latest spectrogram.
   spectrogram: Float32Array[]
@@ -70,7 +68,8 @@ export default class StreamingFeatureExtractor extends EventEmitter {
   isStreaming: boolean
 
   // The script node doing the Web Audio processing.
-  scriptNode: ScriptProcessorNode
+  scriptNode: ScriptProcessorNode;
+  melFeatureNode: MelFeatureNode;
   // The active stream.
   stream: MediaStream
 
@@ -94,13 +93,12 @@ export default class StreamingFeatureExtractor extends EventEmitter {
   constructor(params: Params) {
     super();
 
-    const {bufferLength, duration, hopLength, isMfccEnabled,
-      melCount, targetSr, inputBufferLength} = params;
+    const {bufferLength, duration, hopLength, nMels, targetSr,
+      inputBufferLength} = params;
     this.bufferLength = bufferLength;
     this.inputBufferLength = inputBufferLength || INPUT_BUFFER_LENGTH;
     this.hopLength = hopLength;
-    this.melCount = melCount;
-    this.isMfccEnabled = isMfccEnabled;
+    this.nMels = nMels;
     this.targetSr = targetSr;
     this.duration = duration;
     this.bufferCount = Math.floor(
@@ -113,7 +111,7 @@ export default class StreamingFeatureExtractor extends EventEmitter {
     // The mel filterbank is actually half of the size of the number of samples,
     // since the FFT array is complex valued.
     this.melFilterbank = AudioUtils.createMelFilterbank(
-      this.bufferLength/2 + 1, this.melCount);
+      this.bufferLength/2 + 1, this.nMels);
     this.spectrogram = [];
     this.isStreaming = false;
 
@@ -133,7 +131,7 @@ export default class StreamingFeatureExtractor extends EventEmitter {
     return this.spectrogram;
   }
 
-  start() {
+  async start() {
     // Clear all buffers.
     this.circularBuffer.clear();
     this.playbackBuffer.clear();
@@ -150,24 +148,26 @@ export default class StreamingFeatureExtractor extends EventEmitter {
         "googHighpassFilter": "false"
       },
     } , video: false};
-    navigator.mediaDevices.getUserMedia(constraints).then(stream => {
-      this.stream = stream;
-      this.scriptNode = audioCtx.createScriptProcessor(this.inputBufferLength, 1, 1);
-      const source = audioCtx.createMediaStreamSource(stream);
-      source.connect(this.scriptNode);
-      this.scriptNode.connect(audioCtx.destination);
+    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+    this.stream = stream;
 
-      this.scriptNode.onaudioprocess = this.onAudioProcess.bind(this);
+    //this.scriptNode = audioCtx.createScriptProcessor(this.inputBufferLength, 1, 1);
+    await audioCtx.audioWorklet.addModule('dist/worklet.js')
+    this.melFeatureNode = new MelFeatureNode(audioCtx);
+    const source = audioCtx.createMediaStreamSource(stream);
+    source.connect(this.melFeatureNode);
+    this.melFeatureNode.connect(audioCtx.destination);
 
-      this.isStreaming = true;
-    });
+    //this.scriptNode.onaudioprocess = this.onAudioProcess.bind(this);
+
+    this.isStreaming = true;
   }
 
   stop() {
     for (let track of this.stream.getTracks()) {
       track.stop();
     }
-    this.scriptNode.disconnect(audioCtx.destination);
+    this.melFeatureNode.disconnect(audioCtx.destination);
     this.stream = null;
     this.isStreaming = false;
   }
@@ -217,13 +217,8 @@ export default class StreamingFeatureExtractor extends EventEmitter {
       const fft = AudioUtils.fft(buffer);
       const fftEnergies = AudioUtils.fftEnergies(fft);
       const melEnergies = AudioUtils.applyFilterbank(fftEnergies, this.melFilterbank);
-      const mfccs = AudioUtils.cepstrumFromEnergySpectrum(melEnergies);
+      this.spectrogram.push(melEnergies);
 
-      if (this.isMfccEnabled) {
-        this.spectrogram.push(mfccs);
-      } else {
-        this.spectrogram.push(melEnergies);
-      }
       if (this.spectrogram.length > this.bufferCount) {
         // Remove the first element in the array.
         this.spectrogram.splice(0, 1);
