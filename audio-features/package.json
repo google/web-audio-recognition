@@ -4,7 +4,7 @@
   "description": "Web Audio feature extraction",
   "main": "webpack.config.js",
   "scripts": {
-    "start": "webpack --watch",
+    "dev": "webpack --watch",
     "test": "mocha -r ts-node/register --reporter spec test/test.ts"
   },
   "author": "Boris Smus <boris@smus.com> (http://smus.com)",

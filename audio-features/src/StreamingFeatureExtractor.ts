@@ -153,7 +153,7 @@ export default class StreamingFeatureExtractor extends EventEmitter {
 
     //this.scriptNode = audioCtx.createScriptProcessor(this.inputBufferLength, 1, 1);
     await audioCtx.audioWorklet.addModule('dist/worklet.js')
-    this.melFeatureNode = new MelFeatureNode(audioCtx);
+    this.melFeatureNode = new MelFeatureNode(audioCtx, {bufferLength: 1024});
     const source = audioCtx.createMediaStreamSource(stream);
     source.connect(this.melFeatureNode);
     this.melFeatureNode.connect(audioCtx.destination);

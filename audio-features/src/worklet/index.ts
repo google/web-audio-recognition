@@ -1,6 +1,8 @@
 import * as melspec from '../MelSpectrogram';
 
 export class MelFeatureProcessor extends AudioWorkletProcessor {
+  bufferLength = 2048;
+
   constructor() {
     super();
     this._lastUpdate = currentTime;
@@ -8,6 +10,9 @@ export class MelFeatureProcessor extends AudioWorkletProcessor {
   }
 
   handleMessage(event) {
+    if (event.data.params) {
+      this.configure(event.data.params);
+    }
     console.log('[Processor:Received] "' + event.data.message +
       '" (' + event.data.timeStamp + ')');
   }
@@ -21,15 +26,18 @@ export class MelFeatureProcessor extends AudioWorkletProcessor {
       });
       this._lastUpdate = currentTime;
     }
-    console.log(inputs);
     const input = inputs[0];
     const channel = input[0];
     const spec = melspec.melSpectrogram(channel, {
       sampleRate: 44100,
     });
-    console.log(spec[0][0]);
 
     return true;
+  }
+
+  private configure(params) {
+    console.log(`Received configuration params: ${params}.`);
+    this.bufferLength = params.bufferLength;
   }
 }
 

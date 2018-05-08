@@ -4,10 +4,11 @@
 export class MelFeatureNode extends AudioWorkletNode {
   counter: number;
 
-  constructor(context) {
+  constructor(context, params) {
     super(context, 'mel-feature-processor');
     this.counter = 0;
     this.port.onmessage = this.handleMessage.bind(this);
+    this.port.postMessage({params});
     this.port.postMessage({
       message: 'Are you ready?',
       timeStamp: this.context.currentTime
