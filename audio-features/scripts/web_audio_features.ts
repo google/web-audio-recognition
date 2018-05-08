@@ -42,8 +42,13 @@ const file = fs.readFileSync(args.input);
 console.log(`Loaded file of ${file.length} bytes.`);
 const result = wav.decode(file);
 const buffer = result.channelData[0];
-console.log(`Decoded audio buffer of ${buffer.length} samples at ${result.sampleRate} Hz.`);
 
+console.log(`Decoded audio buffer.
+Length: ${buffer.length} samples.
+Sample rate: ${result.sampleRate} Hz.
+Duration: ${buffer.length / result.sampleRate}.`);
+
+const startTime = new Date().valueOf();
 const melSpec = melSpectrogram(buffer, {
   sampleRate: Number(args.sample_rate),
   hopLength: Number(args.hop_length),
@@ -52,6 +57,10 @@ const melSpec = melSpectrogram(buffer, {
 });
 
 const logMel = powerToDb(melSpec);
+
+const endTime = new Date().valueOf();
+const elapsed = (endTime - startTime) / 1000;
+console.log(`Calculated mel spectrogram in ${elapsed} seconds.`);
 const shape = [logMel.length, logMel[0].length];
 //console.log(`Generated log-mel spectrogram of shape ${logMel.length} x ${logMel[0].length}.`);
 
