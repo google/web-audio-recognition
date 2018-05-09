@@ -13,7 +13,6 @@
  * License for the specific language governing permissions and limitations under
  * the License.
  */
-import * as DCT from 'dct';
 import * as resampler from 'audio-resampler';
 
 const SR = 44100;
@@ -65,10 +64,6 @@ export default class AudioUtils {
     const transform = fftr.forward(y);
     fftr.dispose();
     return transform;
-  }
-
-  static dct(y: Float32Array) {
-    return DCT(y);
   }
 
   /**
@@ -278,10 +273,6 @@ export default class AudioUtils {
     return win;
   }
 
-  static cepstrumFromEnergySpectrum(melEnergies: Float32Array) {
-    return this.dct(melEnergies);
-  }
-
   /**
    * Calculate MFC coefficients from FFT energies.
    */
@@ -369,4 +360,25 @@ function logGtZero(val) {
   // Ensure that the log argument is nonnegative.
   const offset = Math.exp(MIN_VAL);
   return Math.log(val + offset);
+}
+
+export function resample(audioBuffer: AudioBuffer, targetSr: number) {
+  const sourceSr = audioBuffer.sampleRate;
+  const lengthRes = audioBuffer.length * targetSr/sourceSr;
+  console.log(window.OfflineAudioContext);
+  const offlineCtx = new OfflineAudioContext(1, lengthRes, targetSr);
+
+  return new Promise((resolve, reject) => {
+    const bufferSource = offlineCtx.createBufferSource();
+    bufferSource.buffer = audioBuffer;
+    offlineCtx.oncomplete = function(event) {
+      const bufferRes = event.renderedBuffer;
+      const len = bufferRes.length;
+      //console.log(`Resampled buffer from ${audioBuffer.length} to ${len}.`);
+      resolve(bufferRes);
+    }
+    bufferSource.connect(offlineCtx.destination);
+    bufferSource.start();
+    offlineCtx.startRendering();
+  });
 }

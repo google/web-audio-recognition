@@ -63,7 +63,7 @@
 /******/ 	__webpack_require__.p = "";
 /******/
 /******/ 	// Load entry module and return exports
-/******/ 	return __webpack_require__(__webpack_require__.s = 0);
+/******/ 	return __webpack_require__(__webpack_require__.s = 3);
 /******/ })
 /************************************************************************/
 /******/ ([
@@ -72,45 +72,102 @@
 
 "use strict";
 
+/**
+ * Copyright 2017 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+ * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  See the
+ * License for the specific language governing permissions and limitations under
+ * the License.
+ */
 Object.defineProperty(exports, "__esModule", { value: true });
-const melspec = __webpack_require__(1);
-class MelFeatureProcessor extends AudioWorkletProcessor {
-    constructor() {
-        super();
-        this.bufferLength = 2048;
-        this._lastUpdate = currentTime;
-        this.port.onmessage = this.handleMessage.bind(this);
+/**
+ * Save Float32Array in arbitrarily sized chunks.
+ * Load Float32Array in arbitrarily sized chunks.
+ * Determine if there's enough data to grab a certain amount.
+ */
+class CircularAudioBuffer {
+    constructor(maxLength) {
+        this.buffer = new Float32Array(maxLength);
+        this.currentIndex = 0;
     }
-    handleMessage(event) {
-        if (event.data.params) {
-            this.configure(event.data.params);
+    /**
+     * Add a new buffer of data. Called when we get new audio input samples.
+     */
+    addBuffer(newBuffer) {
+        // Do we have enough data in this buffer?
+        const remaining = this.buffer.length - this.currentIndex;
+        if (this.currentIndex + newBuffer.length > this.buffer.length) {
+            console.error(`Not enough space to write ${newBuffer.length}` +
+                ` to this circular buffer with ${remaining} left.`);
+            return;
         }
-        console.log('[Processor:Received] "' + event.data.message +
-            '" (' + event.data.timeStamp + ')');
+        this.buffer.set(newBuffer, this.currentIndex);
+        //console.log(`Wrote ${newBuffer.length} entries to index ${this.currentIndex}.`);
+        this.currentIndex += newBuffer.length;
     }
-    process(inputs, outputs, parameters) {
-        // Post a message to the node for every 1 second.
-        if (currentTime - this._lastUpdate > 1.0) {
-            this.port.postMessage({
-                message: 'Process is called.',
-                timeStamp: currentTime,
-            });
-            this._lastUpdate = currentTime;
+    /**
+     * How many samples are stored currently?
+     */
+    getLength() {
+        return this.currentIndex;
+    }
+    /**
+     * How much space remains?
+     */
+    getRemainingLength() {
+        return this.buffer.length - this.currentIndex;
+    }
+    /**
+     * Return the first N samples of the buffer, and remove them. Called when we
+     * want to get a buffer of audio data of a fixed size.
+     */
+    popBuffer(length) {
+        // Do we have enough data to read back?
+        if (this.currentIndex < length) {
+            console.error(`This circular buffer doesn't have ${length} entries in it.`);
+            return;
         }
-        const input = inputs[0];
-        const channel = input[0];
-        const spec = melspec.melSpectrogram(channel, {
-            sampleRate: 44100,
-        });
-        return true;
+        if (length == 0) {
+            console.warn(`Calling popBuffer(0) does nothing.`);
+            return;
+        }
+        const popped = this.buffer.slice(0, length);
+        const remaining = this.buffer.slice(length, this.buffer.length);
+        // Remove the popped entries from the buffer.
+        this.buffer.fill(0);
+        this.buffer.set(remaining, 0);
+        // Send the currentIndex back.
+        this.currentIndex -= length;
+        return popped;
     }
-    configure(params) {
-        console.log(`Received configuration params: ${params}.`);
-        this.bufferLength = params.bufferLength;
+    /**
+     * Get the the first part of the buffer without mutating it.
+     */
+    getBuffer(length) {
+        if (!length) {
+            length = this.getLength();
+        }
+        // Do we have enough data to read back?
+        if (this.currentIndex < length) {
+            console.error(`This circular buffer doesn't have ${length} entries in it.`);
+            return;
+        }
+        return this.buffer.slice(0, length);
+    }
+    clear() {
+        this.currentIndex = 0;
+        this.buffer.fill(0);
     }
 }
-exports.MelFeatureProcessor = MelFeatureProcessor;
-registerProcessor('mel-feature-processor', MelFeatureProcessor);
+exports.default = CircularAudioBuffer;
 
 
 /***/ }),
@@ -120,7 +177,7 @@ registerProcessor('mel-feature-processor', MelFeatureProcessor);
 "use strict";
 
 Object.defineProperty(exports, "__esModule", { value: true });
-const FFT = __webpack_require__(2);
+const FFT = __webpack_require__(4);
 function magSpectrogram(stft, power) {
     //console.log(`magSpectrogram on ${stft.length} x ${stft[0].length} power=${power}`);
     const spec = stft.map(fft => pow(mag(fft), power));
@@ -467,6 +524,305 @@ exports.max = max;
 
 /***/ }),
 /* 2 */
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+// From https://github.com/taisel/XAudioJS/blob/master/resampler.js.
+// TODO: Maybe use one of these compiled to WASM: https://lastique.github.io/src_test/.
+
+Object.defineProperty(exports, "__esModule", { value: true });
+//JavaScript Audio Resampler
+//Copyright (C) 2011-2015 Grant Galitz
+//Released to Public Domain
+function Resampler(fromSampleRate, toSampleRate, channels, inputBuffer) {
+    //Input Sample Rate:
+    this.fromSampleRate = +fromSampleRate;
+    //Output Sample Rate:
+    this.toSampleRate = +toSampleRate;
+    //Number of channels:
+    this.channels = channels | 0;
+    //Type checking the input buffer:
+    if (typeof inputBuffer != "object") {
+        throw (new Error("inputBuffer is not an object."));
+    }
+    if (!(inputBuffer instanceof Array) && !(inputBuffer instanceof Float32Array) && !(inputBuffer instanceof Float64Array)) {
+        throw (new Error("inputBuffer is not an array or a float32 or a float64 array."));
+    }
+    this.inputBuffer = inputBuffer;
+    //Initialize the resampler:
+    this.initialize();
+}
+exports.Resampler = Resampler;
+Resampler.prototype.initialize = function () {
+    //Perform some checks:
+    if (this.fromSampleRate > 0 && this.toSampleRate > 0 && this.channels > 0) {
+        if (this.fromSampleRate == this.toSampleRate) {
+            //Setup a resampler bypass:
+            this.resampler = this.bypassResampler; //Resampler just returns what was passed through.
+            this.ratioWeight = 1;
+            this.outputBuffer = this.inputBuffer;
+        }
+        else {
+            this.ratioWeight = this.fromSampleRate / this.toSampleRate;
+            if (this.fromSampleRate < this.toSampleRate) {
+                /*
+                    Use generic linear interpolation if upsampling,
+                    as linear interpolation produces a gradient that we want
+                    and works fine with two input sample points per output in this case.
+                */
+                this.compileLinearInterpolationFunction();
+                this.lastWeight = 1;
+            }
+            else {
+                /*
+                    Custom resampler I wrote that doesn't skip samples
+                    like standard linear interpolation in high downsampling.
+                    This is more accurate than linear interpolation on downsampling.
+                */
+                this.compileMultiTapFunction();
+                this.tailExists = false;
+                this.lastWeight = 0;
+            }
+            this.initializeBuffers();
+        }
+    }
+    else {
+        throw (new Error("Invalid settings specified for the resampler."));
+    }
+};
+Resampler.prototype.compileLinearInterpolationFunction = function () {
+    var toCompile = "var outputOffset = 0;\
+    if (bufferLength > 0) {\
+        var buffer = this.inputBuffer;\
+        var weight = this.lastWeight;\
+        var firstWeight = 0;\
+        var secondWeight = 0;\
+        var sourceOffset = 0;\
+        var outputOffset = 0;\
+        var outputBuffer = this.outputBuffer;\
+        for (; weight < 1; weight += " + this.ratioWeight + ") {\
+            secondWeight = weight % 1;\
+            firstWeight = 1 - secondWeight;";
+    for (var channel = 0; channel < this.channels; ++channel) {
+        toCompile += "outputBuffer[outputOffset++] = (this.lastOutput[" + channel + "] * firstWeight) + (buffer[" + channel + "] * secondWeight);";
+    }
+    toCompile += "}\
+        weight -= 1;\
+        for (bufferLength -= " + this.channels + ", sourceOffset = Math.floor(weight) * " + this.channels + "; sourceOffset < bufferLength;) {\
+            secondWeight = weight % 1;\
+            firstWeight = 1 - secondWeight;";
+    for (var channel = 0; channel < this.channels; ++channel) {
+        toCompile += "outputBuffer[outputOffset++] = (buffer[sourceOffset" + ((channel > 0) ? (" + " + channel) : "") + "] * firstWeight) + (buffer[sourceOffset + " + (this.channels + channel) + "] * secondWeight);";
+    }
+    toCompile += "weight += " + this.ratioWeight + ";\
+            sourceOffset = Math.floor(weight) * " + this.channels + ";\
+        }";
+    for (var channel = 0; channel < this.channels; ++channel) {
+        toCompile += "this.lastOutput[" + channel + "] = buffer[sourceOffset++];";
+    }
+    toCompile += "this.lastWeight = weight % 1;\
+    }\
+    return outputOffset;";
+    this.resampler = Function("bufferLength", toCompile);
+};
+Resampler.prototype.compileMultiTapFunction = function () {
+    var toCompile = "var outputOffset = 0;\
+    if (bufferLength > 0) {\
+        var buffer = this.inputBuffer;\
+        var weight = 0;";
+    for (var channel = 0; channel < this.channels; ++channel) {
+        toCompile += "var output" + channel + " = 0;";
+    }
+    toCompile += "var actualPosition = 0;\
+        var amountToNext = 0;\
+        var alreadyProcessedTail = !this.tailExists;\
+        this.tailExists = false;\
+        var outputBuffer = this.outputBuffer;\
+        var currentPosition = 0;\
+        do {\
+            if (alreadyProcessedTail) {\
+                weight = " + this.ratioWeight + ";";
+    for (channel = 0; channel < this.channels; ++channel) {
+        toCompile += "output" + channel + " = 0;";
+    }
+    toCompile += "}\
+            else {\
+                weight = this.lastWeight;";
+    for (channel = 0; channel < this.channels; ++channel) {
+        toCompile += "output" + channel + " = this.lastOutput[" + channel + "];";
+    }
+    toCompile += "alreadyProcessedTail = true;\
+            }\
+            while (weight > 0 && actualPosition < bufferLength) {\
+                amountToNext = 1 + actualPosition - currentPosition;\
+                if (weight >= amountToNext) {";
+    for (channel = 0; channel < this.channels; ++channel) {
+        toCompile += "output" + channel + " += buffer[actualPosition++] * amountToNext;";
+    }
+    toCompile += "currentPosition = actualPosition;\
+                    weight -= amountToNext;\
+                }\
+                else {";
+    for (channel = 0; channel < this.channels; ++channel) {
+        toCompile += "output" + channel + " += buffer[actualPosition" + ((channel > 0) ? (" + " + channel) : "") + "] * weight;";
+    }
+    toCompile += "currentPosition += weight;\
+                    weight = 0;\
+                    break;\
+                }\
+            }\
+            if (weight <= 0) {";
+    for (channel = 0; channel < this.channels; ++channel) {
+        toCompile += "outputBuffer[outputOffset++] = output" + channel + " / " + this.ratioWeight + ";";
+    }
+    toCompile += "}\
+            else {\
+                this.lastWeight = weight;";
+    for (channel = 0; channel < this.channels; ++channel) {
+        toCompile += "this.lastOutput[" + channel + "] = output" + channel + ";";
+    }
+    toCompile += "this.tailExists = true;\
+                break;\
+            }\
+        } while (actualPosition < bufferLength);\
+    }\
+    return outputOffset;";
+    this.resampler = Function("bufferLength", toCompile);
+};
+Resampler.prototype.bypassResampler = function (upTo) {
+    return upTo;
+};
+Resampler.prototype.initializeBuffers = function () {
+    //Initialize the internal buffer:
+    var outputBufferSize = (Math.ceil(this.inputBuffer.length * this.toSampleRate / this.fromSampleRate / this.channels * 1.000000476837158203125) * this.channels) + this.channels;
+    try {
+        this.outputBuffer = new Float32Array(outputBufferSize);
+        this.lastOutput = new Float32Array(this.channels);
+    }
+    catch (error) {
+        this.outputBuffer = [];
+        this.lastOutput = [];
+    }
+};
+
+
+/***/ }),
+/* 3 */
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
+    return new (P || (P = Promise))(function (resolve, reject) {
+        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
+        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
+        function step(result) { result.done ? resolve(result.value) : new P(function (resolve) { resolve(result.value); }).then(fulfilled, rejected); }
+        step((generator = generator.apply(thisArg, _arguments || [])).next());
+    });
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const melspec = __webpack_require__(1);
+const CircularAudioBuffer_1 = __webpack_require__(0);
+const Resampler_1 = __webpack_require__(2);
+class MelFeatureProcessor extends AudioWorkletProcessor {
+    constructor() {
+        super();
+        // How many samples per buffer (in processed sample rate).
+        this.winLength = 2048;
+        // How many samples between buffers.
+        this.hopLength = 1024;
+        // Processing sample rate that we use for feature extraction.
+        this.processSampleRate = 16000.0;
+        // How many samples have we processed in total?
+        this.totalSamples = 0;
+        this.timer = new Timer();
+        this.lastUpdate = currentTime;
+        this.port.onmessage = this.handleMessage.bind(this);
+    }
+    handleMessage(event) {
+        if (event.data.config) {
+            this.configure(event.data.config);
+        }
+        console.log('[Processor:Received] "' + event.data.message +
+            '" (' + event.data.timeStamp + ')');
+    }
+    process(inputs, outputs, parameters) {
+        // Post a message to the node for every 1 second.
+        if (currentTime - this.lastUpdate > 1.0) {
+            this.port.postMessage({
+                message: 'Process is called.',
+                timeStamp: currentTime,
+            });
+            this.lastUpdate = currentTime;
+        }
+        const input = inputs[0];
+        const channel = input[0];
+        this.circularBuffer.addBuffer(channel);
+        this.totalSamples += channel.length;
+        //console.log(`Total samples: ${this.totalSamples}.`);
+        // If there's enough in the circular buffer, we should run the processing.
+        if (this.circularBuffer.getLength() > this.winLengthNative) {
+            const bufferNative = this.circularBuffer.getBuffer(this.winLengthNative);
+            this.processCompleteBuffer(bufferNative);
+            // Remove a hop's worth of data from the buffer.
+            this.circularBuffer.popBuffer(this.hopLengthNative);
+        }
+        return true;
+    }
+    configure(params) {
+        console.log(`Received configuration params: ${params}.`);
+        this.winLength = params.winLength;
+        this.hopLength = params.hopLength;
+        this.nFft = params.nFft;
+        // Leave some room for extra samples there.
+        this.circularBuffer = new CircularAudioBuffer_1.default(this.winLengthNative * 2);
+        console.log(`Created CircularAudioBuffer.`);
+    }
+    processCompleteBuffer(buffer) {
+        return __awaiter(this, void 0, void 0, function* () {
+            this.timer.start();
+            //const bufferResampled = await resample(buffer, this.processSampleRate);
+            const resampler = new Resampler_1.Resampler(sampleRate, this.processSampleRate, 1, buffer);
+            resampler.resampler(this.winLengthNative);
+            const bufferResampled = resampler.outputBuffer;
+            //console.log(`Resampled ${buffer.length} into ${bufferResampled.length} in ${this.timer.elapsed()} s.`);
+            this.timer.start();
+            const spec = melspec.melSpectrogram(bufferResampled, {
+                sampleRate: this.processSampleRate,
+            });
+            //console.log(`Calculated features in ${this.timer.elapsed()} s.`);
+            console.log(`Mel spec of size ${spec.length} x ${spec[0].length}.`);
+            this.port.postMessage({
+                spec: spec
+            });
+        });
+    }
+    get winLengthNative() {
+        // How many samples do we need in the native sample rate?
+        return Math.floor(this.winLength * (sampleRate / this.processSampleRate));
+    }
+    get hopLengthNative() {
+        // How many samples do we need in the native sample rate?
+        return Math.floor(this.hopLength * (sampleRate / this.processSampleRate));
+    }
+}
+exports.MelFeatureProcessor = MelFeatureProcessor;
+class Timer {
+    start() {
+        this.startTime = this.now();
+    }
+    elapsed() {
+        return this.now() - this.startTime;
+    }
+    now() {
+        return new Date().valueOf() / 1000;
+    }
+}
+registerProcessor('mel-feature-processor', MelFeatureProcessor);
+
+
+/***/ }),
+/* 4 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";

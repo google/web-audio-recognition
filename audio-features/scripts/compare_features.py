@@ -15,7 +15,7 @@ TEST_WAVS = ['../test/test.wav']
 # Parameters for the onsets-and-frames model.
 SAMPLE_RATE = 16000
 HOP_LENGTH = 512
-F_MIN = 500
+F_MIN = 30
 N_MELS = 229
 
 # Generate features from audioset/mel_features.py.

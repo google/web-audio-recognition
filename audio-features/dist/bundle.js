@@ -81,22 +81,6 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-/**
- * Copyright 2017 Google LLC
- *
- * Licensed under the Apache License, Version 2.0 (the
- * "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *   https://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  See the
- * License for the specific language governing permissions and limitations under
- * the License.
- */
-const DCT = __webpack_require__(6);
 const SR = 44100;
 let melFilterbank = null;
 let context = null;
@@ -140,9 +124,6 @@ class AudioUtils {
         const transform = fftr.forward(y);
         fftr.dispose();
         return transform;
-    }
-    static dct(y) {
-        return DCT(y);
     }
     /**
      * Calculates the STFT, given a fft size, and a hop size. For example, if fft
@@ -326,9 +307,6 @@ class AudioUtils {
         }
         return win;
     }
-    static cepstrumFromEnergySpectrum(melEnergies) {
-        return this.dct(melEnergies);
-    }
     /**
      * Calculate MFC coefficients from FFT energies.
      */
@@ -408,6 +386,26 @@ function logGtZero(val) {
     const offset = Math.exp(MIN_VAL);
     return Math.log(val + offset);
 }
+function resample(audioBuffer, targetSr) {
+    const sourceSr = audioBuffer.sampleRate;
+    const lengthRes = audioBuffer.length * targetSr / sourceSr;
+    console.log(window.OfflineAudioContext);
+    const offlineCtx = new OfflineAudioContext(1, lengthRes, targetSr);
+    return new Promise((resolve, reject) => {
+        const bufferSource = offlineCtx.createBufferSource();
+        bufferSource.buffer = audioBuffer;
+        offlineCtx.oncomplete = function (event) {
+            const bufferRes = event.renderedBuffer;
+            const len = bufferRes.length;
+            //console.log(`Resampled buffer from ${audioBuffer.length} to ${len}.`);
+            resolve(bufferRes);
+        };
+        bufferSource.connect(offlineCtx.destination);
+        bufferSource.start();
+        offlineCtx.startRendering();
+    });
+}
+exports.resample = resample;
 
 
 /***/ }),
@@ -417,7 +415,7 @@ function logGtZero(val) {
 "use strict";
 
 Object.defineProperty(exports, "__esModule", { value: true });
-const FFT = __webpack_require__(9);
+const FFT = __webpack_require__(8);
 function magSpectrogram(stft, power) {
     //console.log(`magSpectrogram on ${stft.length} x ${stft[0].length} power=${power}`);
     const spec = stft.map(fft => pow(mag(fft), power));
@@ -943,8 +941,8 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 Object.defineProperty(exports, "__esModule", { value: true });
 const AudioUtils_1 = __webpack_require__(0);
 const CircularAudioBuffer_1 = __webpack_require__(4);
-const eventemitter3_1 = __webpack_require__(8);
-const MelFeatureNode_1 = __webpack_require__(10);
+const eventemitter3_1 = __webpack_require__(7);
+const MelFeatureNode_1 = __webpack_require__(6);
 const INPUT_BUFFER_LENGTH = 16384;
 const audioCtx = new AudioContext();
 /**
@@ -1010,7 +1008,14 @@ class StreamingFeatureExtractor extends eventemitter3_1.EventEmitter {
             this.stream = stream;
             //this.scriptNode = audioCtx.createScriptProcessor(this.inputBufferLength, 1, 1);
             yield audioCtx.audioWorklet.addModule('dist/worklet.js');
-            this.melFeatureNode = new MelFeatureNode_1.MelFeatureNode(audioCtx, { bufferLength: 1024 });
+            const specParams = {
+                sampleRate: 16000,
+                winLength: 2048,
+                hopLength: 512,
+                fMin: 30,
+                nMels: 229
+            };
+            this.melFeatureNode = new MelFeatureNode_1.MelFeatureNode(audioCtx, specParams);
             const source = audioCtx.createMediaStreamSource(stream);
             source.connect(this.melFeatureNode);
             this.melFeatureNode.connect(audioCtx.destination);
@@ -1349,59 +1354,48 @@ function pow2LessThan(value) {
 /* 6 */
 /***/ (function(module, exports, __webpack_require__) {
 
-module.exports = __webpack_require__(7);
+"use strict";
+
+Object.defineProperty(exports, "__esModule", { value: true });
+/**
+ * MelFeatureNode
+ */
+class MelFeatureNode extends AudioWorkletNode {
+    constructor(context, config) {
+        super(context, 'mel-feature-processor');
+        this.counter = 0;
+        this.port.onmessage = this.handleMessage.bind(this);
+        // Send configuration parameters to the AudioWorkletProcessor.
+        this.port.postMessage({ config });
+        this.port.postMessage({
+            message: 'Are you ready?',
+            timeStamp: this.context.currentTime
+        });
+    }
+    handleMessage(event) {
+        if (event.data.spec) {
+            console.log(event.data.spec);
+            return;
+        }
+        this.counter++;
+        console.log('[Node:Received] "' + event.data.message +
+            '" (' + event.data.timeStamp + ')');
+        // Notify the processor when the node gets 10 messages. Then reset the
+        // counter.
+        if (this.counter > 10) {
+            this.port.postMessage({
+                message: '10 messages!',
+                timeStamp: this.context.currentTime
+            });
+            this.counter = 0;
+        }
+    }
+}
+exports.MelFeatureNode = MelFeatureNode;
 
 
 /***/ }),
 /* 7 */
-/***/ (function(module, exports) {
-
-/*===========================================================================*\
- * Discrete Cosine Transform
- *
- * (c) Vail Systems. Joshua Jung and Ben Bryan. 2015
- *
- * This code is not designed to be highly optimized but as an educational
- * tool to understand the Mel-scale and its related coefficients used in
- * human speech analysis.
-\*===========================================================================*/
-cosMap = null;
-
-// Builds a cosine map for the given input size. This allows multiple input sizes to be memoized automagically
-// if you want to run the DCT over and over.
-var memoizeCosines = function(N) {
-  cosMap = cosMap || {};
-  cosMap[N] = new Array(N*N);
-
-  var PI_N = Math.PI / N;
-
-  for (var k = 0; k < N; k++) {
-    for (var n = 0; n < N; n++) {
-      cosMap[N][n + (k * N)] = Math.cos(PI_N * (n + 0.5) * k);
-    }
-  }
-};
-
-function dct(signal, scale) {
-  var L = signal.length;
-  scale = scale || 2;
-
-  if (!cosMap || !cosMap[L]) memoizeCosines(L);
-
-  var coefficients = signal.map(function () {return 0;});
-
-  return coefficients.map(function (__, ix) {
-    return scale * signal.reduce(function (prev, cur, ix_, arr) {
-      return prev + (cur * cosMap[L][ix_ + (ix * L)]);
-    }, 0);
-  });
-};
-
-module.exports = dct;
-
-
-/***/ }),
-/* 8 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -1719,7 +1713,7 @@ if (true) {
 
 
 /***/ }),
-/* 9 */
+/* 8 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -2230,45 +2224,6 @@ FFT.prototype._singleRealTransform4 = function _singleRealTransform4(outOff,
   out[outOff + 6] = FDr;
   out[outOff + 7] = FDi;
 };
-
-
-/***/ }),
-/* 10 */
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
-Object.defineProperty(exports, "__esModule", { value: true });
-/**
- * MelFeatureNode
- */
-class MelFeatureNode extends AudioWorkletNode {
-    constructor(context, params) {
-        super(context, 'mel-feature-processor');
-        this.counter = 0;
-        this.port.onmessage = this.handleMessage.bind(this);
-        this.port.postMessage({ params });
-        this.port.postMessage({
-            message: 'Are you ready?',
-            timeStamp: this.context.currentTime
-        });
-    }
-    handleMessage(event) {
-        this.counter++;
-        console.log('[Node:Received] "' + event.data.message +
-            '" (' + event.data.timeStamp + ')');
-        // Notify the processor when the node gets 10 messages. Then reset the
-        // counter.
-        if (this.counter > 10) {
-            this.port.postMessage({
-                message: '10 messages!',
-                timeStamp: this.context.currentTime
-            });
-            this.counter = 0;
-        }
-    }
-}
-exports.MelFeatureNode = MelFeatureNode;
 
 
 /***/ })

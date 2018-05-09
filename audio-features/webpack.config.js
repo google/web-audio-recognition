@@ -48,7 +48,7 @@ var main = {
 };
 
 var worklet = {
-  entry: "./src/worklet/index.ts",
+  entry: "./src/worklet/MelFeatureProcessor.ts",
   output: {
     filename: "worklet.js",
     path: __dirname + "/dist"
