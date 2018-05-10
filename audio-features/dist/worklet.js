@@ -743,8 +743,6 @@ class MelFeatureProcessor extends AudioWorkletProcessor {
         if (event.data.config) {
             this.configure(event.data.config);
         }
-        console.log('[Processor:Received] "' + event.data.message +
-            '" (' + event.data.timeStamp + ')');
     }
     process(inputs, outputs, parameters) {
         // Post a message to the node for every 1 second.
@@ -770,7 +768,7 @@ class MelFeatureProcessor extends AudioWorkletProcessor {
         return true;
     }
     configure(params) {
-        console.log(`Received configuration params: ${params}.`);
+        console.log(`Received configuration params: ${JSON.stringify(params)}.`);
         this.winLength = params.winLength;
         this.hopLength = params.hopLength;
         this.nFft = params.nFft;
@@ -791,9 +789,8 @@ class MelFeatureProcessor extends AudioWorkletProcessor {
                 sampleRate: this.processSampleRate,
             });
             //console.log(`Calculated features in ${this.timer.elapsed()} s.`);
-            console.log(`Mel spec of size ${spec.length} x ${spec[0].length}.`);
             this.port.postMessage({
-                spec: spec
+                features: spec,
             });
         });
     }

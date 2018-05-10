@@ -96,23 +96,27 @@ function max(arr: any[]) {
 
 window.addEventListener('load', main);
 
-const streamFeature = new StreamingFeatureExtractor({
-  bufferLength: 1024,
+const specParams = {
+  sampleRate: 16000,
+  winLength: 2048,
   hopLength: 512,
-  duration: 1,
-  targetSr: 16000,
-  nMels,
-});
+  fMin: 30,
+  nMels: 229
+};
+const streamFeature = new StreamingFeatureExtractor(specParams);
 
 streamEl.addEventListener('click', e => {
   if (streamFeature.isStreaming) {
     streamFeature.stop();
-    const buffer = streamFeature.getLastPlaybackBuffer();
-    console.log(`Got a stream buffer of length ${buffer.length}.`);
-    analyzeArrayBuffer(buffer);
     streamEl.innerHTML = 'Stream';
   } else {
     streamFeature.start();
+    streamFeature.on('feature', melSpec => {
+      const melSpecEl = plotSpectrogram(melSpec, hopLength,
+        createLayout('Mel energy spectrogram', 'time (s)', 'mel bin'));
+      outEl.innerHTML = '';
+      outEl.appendChild(melSpecEl);
+    });
     streamEl.innerHTML = 'Stop streaming';
   }
 });

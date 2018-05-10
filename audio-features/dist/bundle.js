@@ -939,63 +939,29 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-const AudioUtils_1 = __webpack_require__(0);
-const CircularAudioBuffer_1 = __webpack_require__(4);
 const eventemitter3_1 = __webpack_require__(7);
 const MelFeatureNode_1 = __webpack_require__(6);
 const INPUT_BUFFER_LENGTH = 16384;
 const audioCtx = new AudioContext();
 /**
- * Extracts various kinds of features from an input buffer. Designed for
- * extracting features from a live-running audio input stream.
- *
- * This class gets audio from an audio input stream, feeds it into a
- * ScriptProcessorNode, gets audio sampled at the input sample rate
- * (audioCtx.sampleRate).
- *
- * Once complete, we downsample it to EXAMPLE_SR, and then keep track of the
- * last hop index. Once we have enough data for a buffer of BUFFER_LENGTH,
- * process that buffer and add it to the spectrogram.
+ * Opens an audio stream and extracts Mel spectrogram from it, suitable for
+ * running inference in a TensorFlow.js environment.
  */
 class StreamingFeatureExtractor extends eventemitter3_1.EventEmitter {
-    constructor(params) {
+    constructor(specParams) {
         super();
-        const { bufferLength, duration, hopLength, nMels, targetSr, inputBufferLength } = params;
-        this.bufferLength = bufferLength;
-        this.inputBufferLength = inputBufferLength || INPUT_BUFFER_LENGTH;
-        this.hopLength = hopLength;
-        this.nMels = nMels;
-        this.targetSr = targetSr;
-        this.duration = duration;
-        this.bufferCount = Math.floor((duration * targetSr - bufferLength) / hopLength) + 1;
-        if (hopLength > bufferLength) {
-            console.error('Hop length must be smaller than buffer length.');
-        }
-        // The mel filterbank is actually half of the size of the number of samples,
-        // since the FFT array is complex valued.
-        this.melFilterbank = AudioUtils_1.default.createMelFilterbank(this.bufferLength / 2 + 1, this.nMels);
+        // Where to store the latest spectrogram.
         this.spectrogram = [];
+        // Are we streaming right now?
         this.isStreaming = false;
-        const nativeSr = audioCtx.sampleRate;
-        // Allocate the size of the circular analysis buffer.
-        const resampledBufferLength = Math.max(bufferLength, this.inputBufferLength) *
-            (targetSr / nativeSr) * 4;
-        this.circularBuffer = new CircularAudioBuffer_1.default(resampledBufferLength);
-        // Calculate how many buffers will be enough to keep around to playback.
-        const playbackLength = nativeSr * this.duration * 2;
-        this.playbackBuffer = new CircularAudioBuffer_1.default(playbackLength);
+        this.specParams = specParams;
     }
     getSpectrogram() {
         return this.spectrogram;
     }
     start() {
         return __awaiter(this, void 0, void 0, function* () {
-            // Clear all buffers.
-            this.circularBuffer.clear();
-            this.playbackBuffer.clear();
-            // Reset start time and sample count for ScriptProcessorNode watching.
-            this.processStartTime = new Date();
-            this.processSampleCount = 0;
+            // Open an audio input stream.
             const constraints = { audio: {
                     "mandatory": {
                         "googEchoCancellation": "false",
@@ -1006,20 +972,16 @@ class StreamingFeatureExtractor extends eventemitter3_1.EventEmitter {
                 }, video: false };
             const stream = yield navigator.mediaDevices.getUserMedia(constraints);
             this.stream = stream;
-            //this.scriptNode = audioCtx.createScriptProcessor(this.inputBufferLength, 1, 1);
+            // Create a MelFeatureNode (AudioWorklet).
             yield audioCtx.audioWorklet.addModule('dist/worklet.js');
-            const specParams = {
-                sampleRate: 16000,
-                winLength: 2048,
-                hopLength: 512,
-                fMin: 30,
-                nMels: 229
-            };
-            this.melFeatureNode = new MelFeatureNode_1.MelFeatureNode(audioCtx, specParams);
+            this.melFeatureNode = new MelFeatureNode_1.MelFeatureNode(audioCtx, this.specParams);
             const source = audioCtx.createMediaStreamSource(stream);
             source.connect(this.melFeatureNode);
             this.melFeatureNode.connect(audioCtx.destination);
-            //this.scriptNode.onaudioprocess = this.onAudioProcess.bind(this);
+            this.melFeatureNode.emitter.on('features', features => {
+                this.spectrogram = features;
+                this.emit('feature', this.spectrogram);
+            });
             this.isStreaming = true;
         });
     }
@@ -1031,207 +993,12 @@ class StreamingFeatureExtractor extends eventemitter3_1.EventEmitter {
         this.stream = null;
         this.isStreaming = false;
     }
-    getEnergyLevel() {
-        return this.lastEnergyLevel;
-    }
-    /**
-     * Debug only: for listening to what was most recently recorded.
-     */
-    getLastPlaybackBuffer() {
-        return this.playbackBuffer.getBuffer();
-    }
-    onAudioProcess(audioProcessingEvent) {
-        const audioBuffer = audioProcessingEvent.inputBuffer;
-        // Add to the playback buffers, but make sure we have enough room.
-        const remaining = this.playbackBuffer.getRemainingLength();
-        const arrayBuffer = audioBuffer.getChannelData(0);
-        this.processSampleCount += arrayBuffer.length;
-        if (remaining < arrayBuffer.length) {
-            this.playbackBuffer.popBuffer(arrayBuffer.length);
-            //console.log(`Freed up ${arrayBuffer.length} in the playback buffer.`);
-        }
-        this.playbackBuffer.addBuffer(arrayBuffer);
-        // Resample the buffer into targetSr.
-        //console.log(`Resampling from ${audioCtx.sampleRate} to ${this.targetSr}.`);
-        resampleWebAudio(audioBuffer, this.targetSr).then((audioBufferRes) => {
-            const bufferRes = audioBufferRes.getChannelData(0);
-            // Write in a buffer of ~700 samples.
-            this.circularBuffer.addBuffer(bufferRes);
-        });
-        // Get buffer(s) out of the circular buffer. Note that there may be multiple
-        // available, and if there are, we should get them all.
-        const buffers = this.getFullBuffers();
-        if (buffers.length > 0) {
-            //console.log(`Got ${buffers.length} buffers of audio input data.`);
-        }
-        for (let buffer of buffers) {
-            //console.log(`Got buffer of length ${buffer.length}.`);
-            // Extract the mel values for this new frame of audio data.
-            const fft = AudioUtils_1.default.fft(buffer);
-            const fftEnergies = AudioUtils_1.default.fftEnergies(fft);
-            const melEnergies = AudioUtils_1.default.applyFilterbank(fftEnergies, this.melFilterbank);
-            this.spectrogram.push(melEnergies);
-            if (this.spectrogram.length > this.bufferCount) {
-                // Remove the first element in the array.
-                this.spectrogram.splice(0, 1);
-            }
-            if (this.spectrogram.length == this.bufferCount) {
-                // Notify that we have an updated spectrogram.
-                this.emit('update');
-            }
-            const totalEnergy = melEnergies.reduce((total, num) => total + num);
-            this.lastEnergyLevel = totalEnergy / melEnergies.length;
-        }
-        const elapsed = (new Date().valueOf() - this.processStartTime.valueOf()) / 1000;
-        const expectedSampleCount = (audioCtx.sampleRate * elapsed);
-        const percentError = Math.abs(expectedSampleCount - this.processSampleCount) /
-            this.processSampleCount;
-        if (percentError > 0.1) {
-            console.warn(`ScriptProcessorNode may be dropping samples. Percent error is ${percentError}.`);
-        }
-    }
-    /**
-     * Get as many full buffers as are available in the circular buffer.
-     */
-    getFullBuffers() {
-        const out = [];
-        // While we have enough data in the buffer.
-        while (this.circularBuffer.getLength() > this.bufferLength) {
-            // Get a buffer of desired size.
-            const buffer = this.circularBuffer.getBuffer(this.bufferLength);
-            // Remove a hop's worth of data from the buffer.
-            this.circularBuffer.popBuffer(this.hopLength);
-            out.push(buffer);
-        }
-        return out;
-    }
 }
 exports.default = StreamingFeatureExtractor;
-function resampleWebAudio(audioBuffer, targetSr) {
-    const sourceSr = audioBuffer.sampleRate;
-    const lengthRes = audioBuffer.length * targetSr / sourceSr;
-    const offlineCtx = new OfflineAudioContext(1, lengthRes, targetSr);
-    return new Promise((resolve, reject) => {
-        const bufferSource = offlineCtx.createBufferSource();
-        bufferSource.buffer = audioBuffer;
-        offlineCtx.oncomplete = function (event) {
-            const bufferRes = event.renderedBuffer;
-            const len = bufferRes.length;
-            //console.log(`Resampled buffer from ${audioBuffer.length} to ${len}.`);
-            resolve(bufferRes);
-        };
-        bufferSource.connect(offlineCtx.destination);
-        bufferSource.start();
-        offlineCtx.startRendering();
-    });
-}
 
 
 /***/ }),
-/* 4 */
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
-/**
- * Copyright 2017 Google LLC
- *
- * Licensed under the Apache License, Version 2.0 (the
- * "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *   https://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  See the
- * License for the specific language governing permissions and limitations under
- * the License.
- */
-Object.defineProperty(exports, "__esModule", { value: true });
-/**
- * Save Float32Array in arbitrarily sized chunks.
- * Load Float32Array in arbitrarily sized chunks.
- * Determine if there's enough data to grab a certain amount.
- */
-class CircularAudioBuffer {
-    constructor(maxLength) {
-        this.buffer = new Float32Array(maxLength);
-        this.currentIndex = 0;
-    }
-    /**
-     * Add a new buffer of data. Called when we get new audio input samples.
-     */
-    addBuffer(newBuffer) {
-        // Do we have enough data in this buffer?
-        const remaining = this.buffer.length - this.currentIndex;
-        if (this.currentIndex + newBuffer.length > this.buffer.length) {
-            console.error(`Not enough space to write ${newBuffer.length}` +
-                ` to this circular buffer with ${remaining} left.`);
-            return;
-        }
-        this.buffer.set(newBuffer, this.currentIndex);
-        //console.log(`Wrote ${newBuffer.length} entries to index ${this.currentIndex}.`);
-        this.currentIndex += newBuffer.length;
-    }
-    /**
-     * How many samples are stored currently?
-     */
-    getLength() {
-        return this.currentIndex;
-    }
-    /**
-     * How much space remains?
-     */
-    getRemainingLength() {
-        return this.buffer.length - this.currentIndex;
-    }
-    /**
-     * Return the first N samples of the buffer, and remove them. Called when we
-     * want to get a buffer of audio data of a fixed size.
-     */
-    popBuffer(length) {
-        // Do we have enough data to read back?
-        if (this.currentIndex < length) {
-            console.error(`This circular buffer doesn't have ${length} entries in it.`);
-            return;
-        }
-        if (length == 0) {
-            console.warn(`Calling popBuffer(0) does nothing.`);
-            return;
-        }
-        const popped = this.buffer.slice(0, length);
-        const remaining = this.buffer.slice(length, this.buffer.length);
-        // Remove the popped entries from the buffer.
-        this.buffer.fill(0);
-        this.buffer.set(remaining, 0);
-        // Send the currentIndex back.
-        this.currentIndex -= length;
-        return popped;
-    }
-    /**
-     * Get the the first part of the buffer without mutating it.
-     */
-    getBuffer(length) {
-        if (!length) {
-            length = this.getLength();
-        }
-        // Do we have enough data to read back?
-        if (this.currentIndex < length) {
-            console.error(`This circular buffer doesn't have ${length} entries in it.`);
-            return;
-        }
-        return this.buffer.slice(0, length);
-    }
-    clear() {
-        this.currentIndex = 0;
-        this.buffer.fill(0);
-    }
-}
-exports.default = CircularAudioBuffer;
-
-
-/***/ }),
+/* 4 */,
 /* 5 */
 /***/ (function(module, exports, __webpack_require__) {
 
@@ -1312,23 +1079,26 @@ function max(arr) {
     return arr.reduce((a, b) => Math.max(a, b));
 }
 window.addEventListener('load', main);
-const streamFeature = new StreamingFeatureExtractor_1.default({
-    bufferLength: 1024,
+const specParams = {
+    sampleRate: 16000,
+    winLength: 2048,
     hopLength: 512,
-    duration: 1,
-    targetSr: 16000,
-    nMels,
-});
+    fMin: 30,
+    nMels: 229
+};
+const streamFeature = new StreamingFeatureExtractor_1.default(specParams);
 streamEl.addEventListener('click', e => {
     if (streamFeature.isStreaming) {
         streamFeature.stop();
-        const buffer = streamFeature.getLastPlaybackBuffer();
-        console.log(`Got a stream buffer of length ${buffer.length}.`);
-        analyzeArrayBuffer(buffer);
         streamEl.innerHTML = 'Stream';
     }
     else {
         streamFeature.start();
+        streamFeature.on('feature', melSpec => {
+            const melSpecEl = PlotGraphs_1.plotSpectrogram(melSpec, hopLength, PlotGraphs_1.createLayout('Mel energy spectrogram', 'time (s)', 'mel bin'));
+            outEl.innerHTML = '';
+            outEl.appendChild(melSpecEl);
+        });
         streamEl.innerHTML = 'Stop streaming';
     }
 });
@@ -1357,37 +1127,24 @@ function pow2LessThan(value) {
 "use strict";
 
 Object.defineProperty(exports, "__esModule", { value: true });
+const eventemitter3_1 = __webpack_require__(7);
 /**
- * MelFeatureNode
+ * MelFeatureNode.
  */
 class MelFeatureNode extends AudioWorkletNode {
     constructor(context, config) {
         super(context, 'mel-feature-processor');
-        this.counter = 0;
+        this.emitter = new eventemitter3_1.EventEmitter();
+        // Listen to messages from the MelFeatureProcessor.
         this.port.onmessage = this.handleMessage.bind(this);
-        // Send configuration parameters to the AudioWorkletProcessor.
+        // Send configuration parameters to the MelFeatureProcessor.
         this.port.postMessage({ config });
-        this.port.postMessage({
-            message: 'Are you ready?',
-            timeStamp: this.context.currentTime
-        });
     }
     handleMessage(event) {
-        if (event.data.spec) {
-            console.log(event.data.spec);
-            return;
-        }
-        this.counter++;
-        console.log('[Node:Received] "' + event.data.message +
-            '" (' + event.data.timeStamp + ')');
-        // Notify the processor when the node gets 10 messages. Then reset the
-        // counter.
-        if (this.counter > 10) {
-            this.port.postMessage({
-                message: '10 messages!',
-                timeStamp: this.context.currentTime
-            });
-            this.counter = 0;
+        if (event.data.features) {
+            const spec = event.data.features;
+            console.log(`Mel spec of size ${spec.length} x ${spec[0].length}.`);
+            this.emitter.emit('features', spec);
         }
     }
 }

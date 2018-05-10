@@ -251,25 +251,39 @@ function expectArraysClose(arr, arr2, maxRelativeError=0.0001) {
   }
 
   const errors = new Float32Array(arr.length);
+  const errorsAbs = new Float32Array(arr.length);
+  const errorsRel = new Float32Array(arr.length);
   for (let i = 0; i < arr.length; i++) {
     const value = arr[i];
     const groundTruth = arr2[i];
+    const abs = Math.abs(groundTruth - value);
+    const rel = Math.abs(1 - arr[i] / arr2[i]);
     // If the value is too small, use absolute error.
-    if (Math.abs(groundTruth) < 1e-3) { //100 * Number.EPSILON) {
-      errors[i] = Math.abs(groundTruth - value);
+    errorsAbs[i] = abs;
+    errorsRel[i] = rel;
+    if (Math.abs(groundTruth) < 1e-3) {
+      errors[i] = abs;
     } else {
-      errors[i] = Math.abs(1 - arr[i] / arr2[i]);
+      errors[i] = rel;
     }
   }
+  let averageErrorAbs = 0;
+  let averageErrorRel = 0;
   const badInds = [];
   for (let i = 0; i < errors.length; i++) {
+    averageErrorAbs += errorsAbs[i];
+    averageErrorRel += errorsRel[i];
     const val = errors[i];
     if (val > maxRelativeError) {
       //console.log(`[${i}] = ${arr[i]}, expected ${arr2[i]}. err: ${val}.`);
       badInds.push(i);
     }
   }
+  averageErrorAbs /= errors.length;
+  averageErrorRel /= errors.length;
+
   if (badInds.length > 0) {
+    console.log(`FYI: average absolute error: ${averageErrorAbs}, relative error: ${averageErrorRel}.`);
     assert(false, `Indices ${badInds} exceed relative error T ${maxRelativeError}.`);
   }
 }

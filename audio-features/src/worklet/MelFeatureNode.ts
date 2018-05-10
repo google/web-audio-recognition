@@ -1,37 +1,28 @@
+import {SpecParams} from '../MelSpectrogram';
+import {EventEmitter} from 'eventemitter3';
+
 /**
- * MelFeatureNode
+ * MelFeatureNode.
  */
 export class MelFeatureNode extends AudioWorkletNode {
-  counter: number;
 
-  constructor(context, config) {
+  emitter = new EventEmitter();
+
+  constructor(context, config: SpecParams) {
     super(context, 'mel-feature-processor');
-    this.counter = 0;
+    // Listen to messages from the MelFeatureProcessor.
     this.port.onmessage = this.handleMessage.bind(this);
-    // Send configuration parameters to the AudioWorkletProcessor.
-    this.port.postMessage({config});
-    this.port.postMessage({
-      message: 'Are you ready?',
-      timeStamp: this.context.currentTime
-    });
-  }
-  handleMessage(event) {
-    if (event.data.spec) {
-      console.log(event.data.spec);
-      return;
-    }
-    this.counter++;
-    console.log('[Node:Received] "' + event.data.message +
-      '" (' + event.data.timeStamp + ')');
 
-    // Notify the processor when the node gets 10 messages. Then reset the
-    // counter.
-    if (this.counter > 10) {
-      this.port.postMessage({
-        message: '10 messages!',
-        timeStamp: this.context.currentTime
-      });
-      this.counter = 0;
+    // Send configuration parameters to the MelFeatureProcessor.
+    this.port.postMessage({config});
+  }
+
+  handleMessage(event) {
+    if (event.data.features) {
+      const spec = event.data.features;
+      console.log(`Mel spec of size ${spec.length} x ${spec[0].length}.`);
+
+      this.emitter.emit('features', spec);
     }
   }
 }
