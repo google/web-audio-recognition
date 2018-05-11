@@ -21,6 +21,7 @@ var main = {
     filename: "bundle.js",
     path: __dirname + "/dist"
   },
+  mode: "development",
 
   // Enable sourcemaps for debugging webpack's output.
   devtool: "source-map",
@@ -48,11 +49,12 @@ var main = {
 };
 
 var worklet = {
-  entry: "./src/worklet/MelFeatureProcessor.ts",
+  entry: "./src/worklet/MelSpectrogramProcessor.ts",
   output: {
     filename: "worklet.js",
     path: __dirname + "/dist"
   },
+  mode: "development",
 
   // Enable sourcemaps for debugging webpack's output.
   devtool: "source-map",

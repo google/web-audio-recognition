@@ -3,7 +3,7 @@ import CircularAudioBuffer from '../CircularAudioBuffer';
 import {resample} from '../AudioUtils';
 import {Resampler} from '../Resampler';
 
-export class MelFeatureProcessor extends AudioWorkletProcessor {
+export class MelSpectrogramProcessor extends AudioWorkletProcessor {
   // How many samples per buffer (in processed sample rate).
   winLength = 2048;
   // How many samples between buffers.
@@ -116,4 +116,4 @@ class Timer {
   }
 }
 
-registerProcessor('mel-feature-processor', MelFeatureProcessor);
+registerProcessor('mel-spectrogram-processor', MelSpectrogramProcessor);

@@ -10,23 +10,25 @@
   "author": "Boris Smus <boris@smus.com> (http://smus.com)",
   "license": "Apache-2.0",
   "dependencies": {
-    "@types/node": "^8.0.50",
+    "@types/node": "^10.0.8",
     "argparse": "^1.0.10",
     "audio-resampler": "^1.0.1",
     "dct": "^0.0.3",
-    "eventemitter3": "^2.0.3",
+    "eventemitter3": "^3.1.0",
     "fft.js": "^4.0.3",
     "node-wav": "0.0.2"
   },
   "devDependencies": {
     "@types/mocha": "^5.2.0",
-    "awesome-typescript-loader": "^3.2.3",
+    "awesome-typescript-loader": "^5.0.0",
     "chai": "^4.1.2",
     "chai-almost": "^1.0.1",
     "mocha": "^5.1.1",
     "source-map-loader": "^0.2.1",
     "ts-node": "^6.0.2",
-    "typescript": "^2.4.2",
-    "webpack-livereload-plugin": "^0.11.0"
+    "typescript": "^2.8.3",
+    "webpack": "^4.8.2",
+    "webpack-cli": "^2.1.3",
+    "webpack-livereload-plugin": "^2.1.1"
   }
 }

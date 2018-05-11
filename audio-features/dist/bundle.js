@@ -33,9 +33,6 @@
 /******/ 	// expose the module cache
 /******/ 	__webpack_require__.c = installedModules;
 /******/
-/******/ 	// identity function for calling harmony imports with the correct context
-/******/ 	__webpack_require__.i = function(value) { return value; };
-/******/
 /******/ 	// define getter function for harmony exports
 /******/ 	__webpack_require__.d = function(exports, name, getter) {
 /******/ 		if(!__webpack_require__.o(exports, name)) {
@@ -45,6 +42,11 @@
 /******/ 				get: getter
 /******/ 			});
 /******/ 		}
+/******/ 	};
+/******/
+/******/ 	// define __esModule on exports
+/******/ 	__webpack_require__.r = function(exports) {
+/******/ 		Object.defineProperty(exports, '__esModule', { value: true });
 /******/ 	};
 /******/
 /******/ 	// getDefaultExport function for compatibility with non-harmony modules
@@ -62,1097 +64,18 @@
 /******/ 	// __webpack_public_path__
 /******/ 	__webpack_require__.p = "";
 /******/
+/******/
 /******/ 	// Load entry module and return exports
-/******/ 	return __webpack_require__(__webpack_require__.s = 5);
+/******/ 	return __webpack_require__(__webpack_require__.s = "./src/index.ts");
 /******/ })
 /************************************************************************/
-/******/ ([
-/* 0 */
-/***/ (function(module, exports, __webpack_require__) {
+/******/ ({
 
-"use strict";
-
-var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
-    return new (P || (P = Promise))(function (resolve, reject) {
-        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
-        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
-        function step(result) { result.done ? resolve(result.value) : new P(function (resolve) { resolve(result.value); }).then(fulfilled, rejected); }
-        step((generator = generator.apply(thisArg, _arguments || [])).next());
-    });
-};
-Object.defineProperty(exports, "__esModule", { value: true });
-const SR = 44100;
-let melFilterbank = null;
-let context = null;
-class AudioUtils {
-    static loadExampleBuffer() {
-        return AudioUtils.loadBuffer('assets/spoken_command_example.wav');
-    }
-    static loadSineBuffer() {
-        return AudioUtils.loadBuffer('assets/sine_100ms_example.wav');
-    }
-    static loadBuffer(url) {
-        if (!context) {
-            context = new AudioContext();
-        }
-        return new Promise((resolve, reject) => {
-            const xhr = new XMLHttpRequest();
-            // Load an example of speech being spoken.
-            xhr.open('GET', url);
-            xhr.onload = () => {
-                context.decodeAudioData(xhr.response, buffer => {
-                    resolve(buffer);
-                });
-            };
-            xhr.responseType = 'arraybuffer';
-            xhr.onerror = (err) => reject(err);
-            xhr.send();
-        });
-    }
-    static loadBufferOffline(url) {
-        return __awaiter(this, void 0, void 0, function* () {
-            const offlineCtx = new OfflineAudioContext(1, 16000, 16000);
-            return fetch(url).then(body => body.arrayBuffer())
-                .then(buffer => offlineCtx.decodeAudioData(buffer));
-        });
-    }
-    /**
-     * Calculates the FFT for an array buffer. Output is an array.
-     */
-    static fft(y) {
-        const fftr = null;
-        const transform = fftr.forward(y);
-        fftr.dispose();
-        return transform;
-    }
-    /**
-     * Calculates the STFT, given a fft size, and a hop size. For example, if fft
-     * size is 2048 and hop size is 1024, there will be 50% overlap. Given those
-     * params, if the input sample has 4096 values, there would be 3 analysis
-     * frames: [0, 2048], [1024, 3072], [2048, 4096].
-     */
-    static stft(y, fftSize = 2048, hopSize = fftSize) {
-        // Split the input buffer into sub-buffers of size fftSize.
-        const bufferCount = Math.floor((y.length - fftSize) / hopSize) + 1;
-        let matrix = range(bufferCount).map(x => new Float32Array(fftSize));
-        for (let i = 0; i < bufferCount; i++) {
-            const ind = i * hopSize;
-            const buffer = y.slice(ind, ind + fftSize);
-            // In the end, we will likely have an incomplete buffer, which we should
-            // just ignore.
-            if (buffer.length != fftSize) {
-                continue;
-            }
-            const win = AudioUtils.hannWindow(buffer.length);
-            const winBuffer = AudioUtils.applyWindow(buffer, win);
-            const fft = AudioUtils.fft(winBuffer);
-            // TODO: Understand why fft output is 2 larger than expected (eg. 1026
-            // rather than 1024).
-            matrix[i].set(fft.slice(0, fftSize));
-        }
-        return matrix;
-    }
-    /**
-     * Given STFT energies, calculates the mel spectrogram.
-     */
-    static melSpectrogram(stftEnergies, melCount = 20, lowHz = 300, highHz = 8000, sr = SR) {
-        this.lazyCreateMelFilterbank(stftEnergies[0].length, melCount, lowHz, highHz, sr);
-        // For each fft slice, calculate the corresponding mel values.
-        const out = [];
-        for (let i = 0; i < stftEnergies.length; i++) {
-            out[i] = AudioUtils.applyFilterbank(stftEnergies[i], melFilterbank);
-        }
-        return out;
-    }
-    /**
-     * Given STFT energies, calculates the MFCC spectrogram.
-     */
-    static mfccSpectrogram(stftEnergies, melCount = 20) {
-        // For each fft slice, calculate the corresponding MFCC values.
-        const out = [];
-        for (let i = 0; i < stftEnergies.length; i++) {
-            out[i] = this.mfcc(stftEnergies[i], melCount);
-        }
-        return out;
-    }
-    static lazyCreateMelFilterbank(length, melCount = 20, lowHz = 300, highHz = 8000, sr = SR) {
-        // Lazy-create a Mel filterbank.
-        if (!melFilterbank || melFilterbank.length != length) {
-            melFilterbank = this.createMelFilterbank(length, melCount, lowHz, highHz, sr);
-        }
-    }
-    /**
-     * Given an interlaced complex array (y_i is real, y_(i+1) is imaginary),
-     * calculates the magnitudes. Output is half the size.
-     */
-    static fftMags(y) {
-        let out = new Float32Array(y.length / 2);
-        for (let i = 0; i < y.length / 2; i++) {
-            out[i] = Math.hypot(y[i * 2], y[i * 2 + 1]);
-        }
-        return out;
-    }
-    /**
-     * Given an interlaced complex array (y_i is real, y_(i+1) is imaginary),
-     * calculates the energies. Output is half the size.
-     */
-    static fftEnergies(y) {
-        let out = new Float32Array(y.length / 2);
-        for (let i = 0; i < y.length / 2; i++) {
-            out[i] = y[i * 2] * y[i * 2] + y[i * 2 + 1] * y[i * 2 + 1];
-        }
-        return out;
-    }
-    /**
-     * Generates a Hann window of a given length.
-     */
-    static hannWindow(length) {
-        let win = new Float32Array(length);
-        for (let i = 0; i < length; i++) {
-            win[i] = 0.5 * (1 - Math.cos(2 * Math.PI * i / (length - 1)));
-        }
-        return win;
-    }
-    /**
-     * Applies a window to a buffer (point-wise multiplication).
-     */
-    static applyWindow(buffer, win) {
-        if (buffer.length != win.length) {
-            console.error(`Buffer length ${buffer.length} != window length
-        ${win.length}.`);
-            return;
-        }
-        let out = new Float32Array(buffer.length);
-        for (let i = 0; i < buffer.length; i++) {
-            out[i] = win[i] * buffer[i];
-        }
-        return out;
-    }
-    static pointWiseMultiply(out, array1, array2) {
-        if (out.length != array1.length || array1.length != array2.length) {
-            console.error(`Output length ${out.length} != array1 length
-        ${array1.length} != array2 length ${array2.length}.`);
-            return;
-        }
-        for (let i = 0; i < out.length; i++) {
-            out[i] = array1[i] * array2[i];
-        }
-        return out;
-    }
-    static createMelFilterbank(fftSize, melCount = 20, lowHz = 300, highHz = 8000, sr = SR) {
-        const lowMel = this.hzToMel(lowHz);
-        const highMel = this.hzToMel(highHz);
-        // Construct linearly spaced array of melCount intervals, between lowMel and
-        // highMel.
-        const mels = linearSpace(lowMel, highMel, melCount + 2);
-        // Convert from mels to hz.
-        const hzs = mels.map(mel => this.melToHz(mel));
-        // Go from hz to the corresponding bin in the FFT.
-        const bins = hzs.map(hz => this.freqToBin(hz, fftSize));
-        // Now that we have the start and end frequencies, create each triangular
-        // window (each value in [0, 1]) that we will apply to an FFT later. These
-        // are mostly sparse, except for the values of the triangle
-        const length = bins.length - 2;
-        const filters = [];
-        for (let i = 0; i < length; i++) {
-            // Now generate the triangles themselves.
-            filters[i] = this.triangleWindow(fftSize, bins[i], bins[i + 1], bins[i + 2]);
-        }
-        return filters;
-    }
-    /**
-     * Given an array of FFT magnitudes, apply a filterbank. Output should be an
-     * array with size |filterbank|.
-     */
-    static applyFilterbank(fftEnergies, filterbank) {
-        if (fftEnergies.length != filterbank[0].length) {
-            console.error(`Each entry in filterbank should have dimensions matching
-        FFT. |FFT| = ${fftEnergies.length}, |filterbank[0]| = ${filterbank[0].length}.`);
-            return;
-        }
-        // Apply each filter to the whole FFT signal to get one value.
-        let out = new Float32Array(filterbank.length);
-        for (let i = 0; i < filterbank.length; i++) {
-            // To calculate filterbank energies we multiply each filterbank with the
-            // power spectrum.
-            const win = AudioUtils.applyWindow(fftEnergies, filterbank[i]);
-            // Then add up the coefficents, and take the log.
-            out[i] = logGtZero(sum(win));
-        }
-        return out;
-    }
-    static hzToMel(hz) {
-        return 1125 * Math.log(1 + hz / 700);
-    }
-    static melToHz(mel) {
-        return 700 * (Math.exp(mel / 1125) - 1);
-    }
-    static freqToBin(freq, fftSize, sr = SR) {
-        return Math.floor((fftSize + 1) * freq / (sr / 2));
-    }
-    /**
-     * Creates a triangular window.
-     */
-    static triangleWindow(length, startIndex, peakIndex, endIndex) {
-        const win = new Float32Array(length);
-        const deltaUp = 1.0 / (peakIndex - startIndex);
-        for (let i = startIndex; i < peakIndex; i++) {
-            // Linear ramp up between start and peak index (values from 0 to 1).
-            win[i] = (i - startIndex) * deltaUp;
-        }
-        const deltaDown = 1.0 / (endIndex - peakIndex);
-        for (let i = peakIndex; i < endIndex; i++) {
-            // Linear ramp down between peak and end index (values from 1 to 0).
-            win[i] = 1 - (i - peakIndex) * deltaDown;
-        }
-        return win;
-    }
-    /**
-     * Calculate MFC coefficients from FFT energies.
-     */
-    static mfcc(fftEnergies, melCount = 20, lowHz = 300, highHz = 8000, sr = SR) {
-        this.lazyCreateMelFilterbank(fftEnergies.length, melCount, lowHz, highHz, sr);
-        // Apply the mel filterbank to the FFT magnitudes.
-        const melEnergies = this.applyFilterbank(fftEnergies, melFilterbank);
-        // Go from mel coefficients to MFCC.
-        return this.cepstrumFromEnergySpectrum(melEnergies);
-    }
-    static normalizeSpecInPlace(spec, normMin = 0, normMax = 1) {
-        let min = Infinity;
-        let max = -Infinity;
-        const times = spec.length;
-        const freqs = spec[0].length;
-        for (let i = 0; i < times; i++) {
-            for (let j = 0; j < freqs; j++) {
-                const val = spec[i][j];
-                if (val < min) {
-                    min = val;
-                }
-                if (val > max) {
-                    max = val;
-                }
-            }
-        }
-        const scale = (normMax - normMin) / (max - min);
-        const offset = normMin - min;
-        for (let i = 0; i < times; i++) {
-            for (let j = 0; j < freqs; j++) {
-                // Get a normalized value in [0, 1].
-                const norm = (spec[i][j] - min) / (max - min);
-                // Then convert it to the desired range.
-                spec[i][j] = normMin + norm * (normMax - normMin);
-            }
-        }
-    }
-    static playbackArrayBuffer(buffer, sampleRate) {
-        if (!context) {
-            context = new AudioContext();
-        }
-        if (!sampleRate) {
-            sampleRate = context.sampleRate;
-        }
-        const audioBuffer = context.createBuffer(1, buffer.length, sampleRate);
-        const audioBufferData = audioBuffer.getChannelData(0);
-        audioBufferData.set(buffer);
-        const source = context.createBufferSource();
-        source.buffer = audioBuffer;
-        source.connect(context.destination);
-        source.start();
-    }
-}
-exports.default = AudioUtils;
-function linearSpace(start, end, count) {
-    const delta = (end - start) / (count + 1);
-    let out = [];
-    for (let i = 0; i < count; i++) {
-        out[i] = start + delta * i;
-    }
-    return out;
-}
-function sum(array) {
-    return array.reduce(function (a, b) { return a + b; });
-}
-function range(count) {
-    let out = [];
-    for (let i = 0; i < count; i++) {
-        out.push(i);
-    }
-    return out;
-}
-// Use a lower minimum value for energy.
-const MIN_VAL = -10;
-function logGtZero(val) {
-    // Ensure that the log argument is nonnegative.
-    const offset = Math.exp(MIN_VAL);
-    return Math.log(val + offset);
-}
-function resample(audioBuffer, targetSr) {
-    const sourceSr = audioBuffer.sampleRate;
-    const lengthRes = audioBuffer.length * targetSr / sourceSr;
-    console.log(window.OfflineAudioContext);
-    const offlineCtx = new OfflineAudioContext(1, lengthRes, targetSr);
-    return new Promise((resolve, reject) => {
-        const bufferSource = offlineCtx.createBufferSource();
-        bufferSource.buffer = audioBuffer;
-        offlineCtx.oncomplete = function (event) {
-            const bufferRes = event.renderedBuffer;
-            const len = bufferRes.length;
-            //console.log(`Resampled buffer from ${audioBuffer.length} to ${len}.`);
-            resolve(bufferRes);
-        };
-        bufferSource.connect(offlineCtx.destination);
-        bufferSource.start();
-        offlineCtx.startRendering();
-    });
-}
-exports.resample = resample;
-
-
-/***/ }),
-/* 1 */
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
-Object.defineProperty(exports, "__esModule", { value: true });
-const FFT = __webpack_require__(8);
-function magSpectrogram(stft, power) {
-    //console.log(`magSpectrogram on ${stft.length} x ${stft[0].length} power=${power}`);
-    const spec = stft.map(fft => pow(mag(fft), power));
-    const nFft = stft[0].length - 1;
-    return [spec, nFft];
-}
-exports.magSpectrogram = magSpectrogram;
-function stft(y, params) {
-    const nFft = params.nFft || 2048;
-    const winLength = params.winLength || nFft;
-    const hopLength = params.hopLength || Math.floor(winLength / 4);
-    let fftWindow = hannWindow(winLength);
-    // Pad the window to be the size of nFft.
-    fftWindow = padCenterToLength(fftWindow, nFft);
-    // Pad the time series so that the frames are centered.
-    y = padReflect(y, Math.floor(nFft / 2));
-    // Window the time series.
-    const yFrames = frame(y, nFft, hopLength);
-    //console.log(`Split audio into ${yFrames.length} frames of ${yFrames[0].length} each.`);
-    // Pre-allocate the STFT matrix.
-    const stftMatrix = [];
-    const width = yFrames.length;
-    const height = nFft + 2;
-    //console.log(`Creating STFT matrix of size ${width} x ${height}.`);
-    for (let i = 0; i < width; i++) {
-        // Each column is a Float32Array of size height.
-        const col = new Float32Array(height);
-        stftMatrix[i] = col;
-    }
-    for (let i = 0; i < width; i++) {
-        // Populate the STFT matrix.
-        const winBuffer = applyWindow(yFrames[i], fftWindow);
-        const col = fft(winBuffer);
-        stftMatrix[i].set(col.slice(0, height));
-    }
-    return stftMatrix;
-}
-exports.stft = stft;
-function spectrogram(y, params) {
-    if (!params.power) {
-        params.power = 1;
-    }
-    const stftMatrix = stft(y, params);
-    const [spec, nFft] = magSpectrogram(stftMatrix, params.power);
-    return spec;
-}
-exports.spectrogram = spectrogram;
-function melSpectrogram(y, params) {
-    if (!params.power) {
-        params.power = 2.0;
-    }
-    const stftMatrix = stft(y, params);
-    const [spec, nFft] = magSpectrogram(stftMatrix, params.power);
-    params.nFft = nFft;
-    const melBasis = createMelFilterbank(params);
-    return applyWholeFilterbank(spec, melBasis);
-}
-exports.melSpectrogram = melSpectrogram;
-function applyWholeFilterbank(spec, filterbank) {
-    // Apply a point-wise dot product between the array of arrays.
-    const out = [];
-    for (let i = 0; i < spec.length; i++) {
-        out[i] = applyFilterbank(spec[i], filterbank);
-    }
-    return out;
-}
-exports.applyWholeFilterbank = applyWholeFilterbank;
-function applyFilterbank(mags, filterbank) {
-    if (mags.length != filterbank[0].length) {
-        throw new Error(`Each entry in filterbank should have dimensions ` +
-            `matching FFT. |mags| = ${mags.length}, ` +
-            `|filterbank[0]| = ${filterbank[0].length}.`);
-    }
-    // Apply each filter to the whole FFT signal to get one value.
-    let out = new Float32Array(filterbank.length);
-    for (let i = 0; i < filterbank.length; i++) {
-        // To calculate filterbank energies we multiply each filterbank with the
-        // power spectrum.
-        const win = applyWindow(mags, filterbank[i]);
-        // Then add up the coefficents.
-        out[i] = sum(win);
-    }
-    return out;
-}
-exports.applyFilterbank = applyFilterbank;
-function applyWindow(buffer, win) {
-    if (buffer.length != win.length) {
-        console.error(`Buffer length ${buffer.length} != window length ${win.length}.`);
-        return;
-    }
-    let out = new Float32Array(buffer.length);
-    for (let i = 0; i < buffer.length; i++) {
-        out[i] = win[i] * buffer[i];
-    }
-    return out;
-}
-exports.applyWindow = applyWindow;
-function padCenterToLength(data, length) {
-    // If data is longer than length, error!
-    if (data.length > length) {
-        throw new Error('Data is longer than length.');
-    }
-    const paddingLeft = Math.floor((length - data.length) / 2);
-    const paddingRight = length - data.length - paddingLeft;
-    return padConstant(data, [paddingLeft, paddingRight]);
-}
-exports.padCenterToLength = padCenterToLength;
-function padConstant(data, padding) {
-    let padLeft, padRight;
-    if (typeof (padding) == 'object') {
-        [padLeft, padRight] = padding;
-    }
-    else {
-        padLeft = padRight = padding;
-    }
-    const out = new Float32Array(data.length + padLeft + padRight);
-    out.set(data, padLeft);
-    return out;
-}
-exports.padConstant = padConstant;
-function padReflect(data, padding) {
-    const out = padConstant(data, padding);
-    for (let i = 0; i < padding; i++) {
-        // Pad the beginning with reflected values.
-        out[i] = out[2 * padding - i];
-        // Pad the end with reflected values.
-        out[out.length - i - 1] = out[out.length - 2 * padding + i - 1];
-    }
-    return out;
-}
-exports.padReflect = padReflect;
-/**
- * Given a timeseries, returns an array of timeseries that are windowed
- * according to the params specified.
- */
-function frame(data, frameLength, hopLength) {
-    const bufferCount = Math.floor((data.length - frameLength) / hopLength) + 1;
-    let buffers = range(bufferCount).map(x => new Float32Array(frameLength));
-    for (let i = 0; i < bufferCount; i++) {
-        const ind = i * hopLength;
-        const buffer = data.slice(ind, ind + frameLength);
-        buffers[i].set(buffer);
-        // In the end, we will likely have an incomplete buffer, which we should
-        // just ignore.
-        if (buffer.length != frameLength) {
-            continue;
-        }
-    }
-    return buffers;
-}
-exports.frame = frame;
-function createMelFilterbank(params) {
-    const fMin = params.fMin || 0;
-    const fMax = params.fMax || params.sampleRate / 2;
-    const nMels = params.nMels || 128;
-    const nFft = params.nFft || 2048;
-    // Center freqs of each FFT band.
-    const fftFreqs = calculateFftFreqs(params.sampleRate, nFft);
-    // (Pseudo) center freqs of each Mel band.
-    const melFreqs = calculateMelFreqs(nMels + 2, fMin, fMax);
-    const melDiff = internalDiff(melFreqs);
-    const ramps = outerSubtract(melFreqs, fftFreqs);
-    const filterSize = ramps[0].length;
-    const weights = [];
-    for (let i = 0; i < nMels; i++) {
-        weights[i] = new Float32Array(filterSize);
-        for (let j = 0; j < ramps[i].length; j++) {
-            const lower = -ramps[i][j] / melDiff[i];
-            const upper = ramps[i + 2][j] / melDiff[i + 1];
-            const weight = Math.max(0, Math.min(lower, upper));
-            weights[i][j] = weight;
-        }
-    }
-    // Slaney-style mel is scaled to be approx constant energy per channel.
-    for (let i = 0; i < weights.length; i++) {
-        // How much energy per channel.
-        const enorm = 2.0 / (melFreqs[2 + i] - melFreqs[i]);
-        // Normalize by that amount.
-        weights[i] = weights[i].map(val => val * enorm);
-    }
-    return weights;
-}
-exports.createMelFilterbank = createMelFilterbank;
-function fft(y) {
-    const fft = new FFT(y.length);
-    const out = fft.createComplexArray();
-    const data = fft.toComplexArray(y);
-    fft.transform(out, data);
-    return out;
-}
-exports.fft = fft;
-function hannWindow(length) {
-    let win = new Float32Array(length);
-    for (let i = 0; i < length; i++) {
-        win[i] = 0.5 * (1 - Math.cos(2 * Math.PI * i / (length - 1)));
-    }
-    return win;
-}
-exports.hannWindow = hannWindow;
-function array(arr) {
-    const out = new Float32Array(arr.length);
-    out.set(arr);
-    return out;
-}
-exports.array = array;
-const MIN_VAL = -10;
-function logGtZero(val) {
-    // Ensure that the log argument is nonnegative.
-    const offset = Math.exp(MIN_VAL);
-    return Math.log(val + offset);
-}
-exports.logGtZero = logGtZero;
-function sum(array) {
-    return array.reduce(function (a, b) { return a + b; });
-}
-exports.sum = sum;
-function range(count) {
-    let out = [];
-    for (let i = 0; i < count; i++) {
-        out.push(i);
-    }
-    return out;
-}
-exports.range = range;
-function linearSpace(start, end, count) {
-    // Include start and endpoints.
-    const delta = (end - start) / (count - 1);
-    let out = new Float32Array(count);
-    for (let i = 0; i < count; i++) {
-        out[i] = start + delta * i;
-    }
-    return out;
-}
-exports.linearSpace = linearSpace;
-/**
- * Given an interlaced complex array (y_i is real, y_(i+1) is imaginary),
- * calculates the energies. Output is half the size.
- */
-function mag(y) {
-    let out = new Float32Array(y.length / 2);
-    for (let i = 0; i < y.length / 2; i++) {
-        out[i] = Math.sqrt(y[i * 2] * y[i * 2] + y[i * 2 + 1] * y[i * 2 + 1]);
-    }
-    return out;
-}
-exports.mag = mag;
-function powerToDb(spec, amin = 1e-10, refValue = 1.0, topDb = 80.0) {
-    const width = spec.length;
-    const height = spec[0].length;
-    const logSpec = [];
-    for (let i = 0; i < width; i++) {
-        logSpec[i] = new Float32Array(height);
-    }
-    for (let i = 0; i < width; i++) {
-        for (let j = 0; j < height; j++) {
-            const val = spec[i][j];
-            let logVal = 10.0 * Math.log10(Math.max(amin, val));
-            logVal -= 10.0 * Math.log10(Math.max(amin, refValue));
-            logSpec[i][j] = logVal;
-        }
-    }
-    if (topDb) {
-        if (topDb < 0) {
-            throw new Error(`topDb must be non-negative.`);
-        }
-        for (let i = 0; i < width; i++) {
-            const maxVal = max(logSpec[i]);
-            for (let j = 0; j < height; j++) {
-                logSpec[i][j] = Math.max(logSpec[i][j], maxVal - topDb);
-            }
-        }
-    }
-    return logSpec;
-}
-exports.powerToDb = powerToDb;
-function hzToMel(hz) {
-    return 1125.0 * Math.log(1 + hz / 700.0);
-}
-exports.hzToMel = hzToMel;
-function melToHz(mel) {
-    return 700.0 * (Math.exp(mel / 1125.0) - 1);
-}
-exports.melToHz = melToHz;
-function freqToBin(freq, nFft, sr) {
-    return Math.floor((nFft + 1) * freq / (sr / 2));
-}
-function flatten2D(spec) {
-    const length = spec[0].length * spec.length;
-    const out = new Float32Array(length);
-    const height = spec[0].length;
-    const width = spec.length;
-    for (let i = 0; i < width; i++) {
-        for (let j = 0; j < height; j++) {
-            out[j * width + i] = spec[i][j];
-        }
-    }
-    return out;
-}
-exports.flatten2D = flatten2D;
-function calculateFftFreqs(sampleRate, nFft) {
-    return linearSpace(0, sampleRate / 2, Math.floor(1 + nFft / 2));
-}
-exports.calculateFftFreqs = calculateFftFreqs;
-function calculateMelFreqs(nMels, fMin, fMax) {
-    const melMin = hzToMel(fMin);
-    const melMax = hzToMel(fMax);
-    // Construct linearly spaced array of nMel intervals, between melMin and
-    // melMax.
-    const mels = linearSpace(melMin, melMax, nMels);
-    const hzs = mels.map(mel => melToHz(mel));
-    return hzs;
-}
-exports.calculateMelFreqs = calculateMelFreqs;
-function internalDiff(arr) {
-    const out = new Float32Array(arr.length - 1);
-    for (let i = 0; i < arr.length; i++) {
-        out[i] = arr[i + 1] - arr[i];
-    }
-    return out;
-}
-exports.internalDiff = internalDiff;
-function outerSubtract(arr, arr2) {
-    const out = [];
-    for (let i = 0; i < arr.length; i++) {
-        out[i] = new Float32Array(arr2.length);
-    }
-    for (let i = 0; i < arr.length; i++) {
-        for (let j = 0; j < arr2.length; j++) {
-            out[i][j] = arr[i] - arr2[j];
-        }
-    }
-    return out;
-}
-exports.outerSubtract = outerSubtract;
-function pow(arr, power) {
-    return arr.map(v => Math.pow(v, power));
-}
-exports.pow = pow;
-function max(arr) {
-    return arr.reduce((a, b) => Math.max(a, b));
-}
-exports.max = max;
-
-
-/***/ }),
-/* 2 */
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
-/**
- * Copyright 2017 Google LLC
- *
- * Licensed under the Apache License, Version 2.0 (the
- * "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *   https://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  See the
- * License for the specific language governing permissions and limitations under
- * the License.
- */
-Object.defineProperty(exports, "__esModule", { value: true });
-const sr = 44100;
-const nyquist = sr / 2;
-function plotAudio(y, layout) {
-    let t = y.map((value, index) => (index / sr));
-    return plotXY(t, y, layout);
-}
-exports.plotAudio = plotAudio;
-function plotCoeffs(y, layout) {
-    let ind = y.map((value, index) => index);
-    return plotXY(ind, y, layout);
-}
-exports.plotCoeffs = plotCoeffs;
-function plotFFT(fftMags, layout) {
-    // Convert magnitudes to dB.
-    const dbs = fftMags.map(val => 20 * Math.log10(val));
-    const times = fftMags.map((value, index) => index / fftMags.length * nyquist);
-    return plotXY(times, fftMags, layout);
-}
-exports.plotFFT = plotFFT;
-function plotFilterbank(filterbank, layout) {
-    let filter = filterbank[0];
-    const inds = filter.map((value, index) => index);
-    return plotXYs(inds, filterbank, layout, 8000);
-}
-exports.plotFilterbank = plotFilterbank;
-function plotSpectrogram(spec, samplesPerSlice, layout) {
-    // The STFT as given is an Float32Array[]. We need to render that matrix as an
-    // image.
-    return plotImage(spec, samplesPerSlice, layout);
-}
-exports.plotSpectrogram = plotSpectrogram;
-function downloadSpectrogramImage(spec) {
-    // Render the spectrogram into a 2D canvas.
-    const canvas = document.createElement('canvas');
-    const times = spec.length;
-    const freqs = spec[0].length;
-    canvas.width = times;
-    canvas.height = freqs;
-    const ctx = canvas.getContext('2d');
-    for (let i = 0; i < times; i++) {
-        for (let j = 0; j < freqs; j++) {
-            const val = Math.floor(spec[i][j] * 255);
-            ctx.fillStyle = `rgb(${val}, ${val}, ${val})`;
-            ctx.strokeStyle = null;
-            ctx.fillRect(i, j, 1, 1);
-        }
-    }
-    // Download the canvas.
-    var link = document.createElement('a');
-    link.setAttribute('download', 'spec.png');
-    link.setAttribute('href', canvas.toDataURL('image/png').replace('image/png', 'image/octet-stream'));
-    link.click();
-}
-exports.downloadSpectrogramImage = downloadSpectrogramImage;
-function plotImage(stft, samplesPerSlice, layout) {
-    let out = document.createElement('div');
-    out.className = 'plot';
-    // Transpose the spectrogram we pass in.
-    let zArr = [];
-    for (let i = 0; i < stft.length; i++) {
-        for (let j = 0; j < stft[0].length; j++) {
-            if (zArr[j] == undefined) {
-                zArr[j] = [];
-            }
-            zArr[j][i] = stft[i][j];
-        }
-    }
-    // Calculate the X values (times) from the stft params.
-    const xArr = stft.map((value, index) => index * samplesPerSlice / sr);
-    // Calculate Y values (frequencies) from stft.
-    const fft = Array.prototype.slice.call(stft[0]);
-    const yArr = fft.map((value, index) => (index / fft.length) * nyquist);
-    const data = [
-        {
-            x: xArr,
-            y: yArr,
-            z: zArr,
-            type: 'heatmap'
-        }
-    ];
-    Plotly.newPlot(out, data, layout);
-    return out;
-}
-function plotXY(x, y, layout) {
-    const out = document.createElement('div');
-    out.className = 'plot';
-    const xArr = Array.prototype.slice.call(x);
-    const yArr = Array.prototype.slice.call(y);
-    const data = [{
-            x: xArr,
-            y: yArr,
-        }];
-    Plotly.plot(out, data, layout);
-    return out;
-}
-function plotXYs(x, y, layout, maxFreq) {
-    const out = document.createElement('div');
-    out.className = 'plot';
-    const xArr = Array.prototype.slice.call(x);
-    const data = y.map(y_i => {
-        const yArr = Array.prototype.slice.call(y_i);
-        return {
-            x: xArr.slice(0, maxFreq),
-            y: yArr.slice(0, maxFreq),
-        };
-    });
-    Plotly.plot(out, data, layout);
-    return out;
-}
-function createLayout(title, xTitle, yTitle, params = {}) {
-    const logY = (params.logY == true);
-    const logX = (params.logX == true);
-    return {
-        title: title,
-        xaxis: {
-            title: xTitle,
-            type: logX ? 'log' : null,
-        },
-        yaxis: {
-            title: yTitle,
-            type: logY ? 'log' : null,
-        }
-    };
-}
-exports.createLayout = createLayout;
-
-
-/***/ }),
-/* 3 */
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
-/**
- * Copyright 2017 Google LLC
- *
- * Licensed under the Apache License, Version 2.0 (the
- * "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *   https://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  See the
- * License for the specific language governing permissions and limitations under
- * the License.
- */
-var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
-    return new (P || (P = Promise))(function (resolve, reject) {
-        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
-        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
-        function step(result) { result.done ? resolve(result.value) : new P(function (resolve) { resolve(result.value); }).then(fulfilled, rejected); }
-        step((generator = generator.apply(thisArg, _arguments || [])).next());
-    });
-};
-Object.defineProperty(exports, "__esModule", { value: true });
-const eventemitter3_1 = __webpack_require__(7);
-const MelFeatureNode_1 = __webpack_require__(6);
-const INPUT_BUFFER_LENGTH = 16384;
-const audioCtx = new AudioContext();
-/**
- * Opens an audio stream and extracts Mel spectrogram from it, suitable for
- * running inference in a TensorFlow.js environment.
- */
-class StreamingFeatureExtractor extends eventemitter3_1.EventEmitter {
-    constructor(specParams) {
-        super();
-        // Where to store the latest spectrogram.
-        this.spectrogram = [];
-        // Are we streaming right now?
-        this.isStreaming = false;
-        this.specParams = specParams;
-    }
-    getSpectrogram() {
-        return this.spectrogram;
-    }
-    start() {
-        return __awaiter(this, void 0, void 0, function* () {
-            // Open an audio input stream.
-            const constraints = { audio: {
-                    "mandatory": {
-                        "googEchoCancellation": "false",
-                        "googAutoGainControl": "false",
-                        "googNoiseSuppression": "false",
-                        "googHighpassFilter": "false"
-                    },
-                }, video: false };
-            const stream = yield navigator.mediaDevices.getUserMedia(constraints);
-            this.stream = stream;
-            // Create a MelFeatureNode (AudioWorklet).
-            yield audioCtx.audioWorklet.addModule('dist/worklet.js');
-            this.melFeatureNode = new MelFeatureNode_1.MelFeatureNode(audioCtx, this.specParams);
-            const source = audioCtx.createMediaStreamSource(stream);
-            source.connect(this.melFeatureNode);
-            this.melFeatureNode.connect(audioCtx.destination);
-            this.melFeatureNode.emitter.on('features', features => {
-                this.spectrogram = features;
-                this.emit('feature', this.spectrogram);
-            });
-            this.isStreaming = true;
-        });
-    }
-    stop() {
-        for (let track of this.stream.getTracks()) {
-            track.stop();
-        }
-        this.melFeatureNode.disconnect(audioCtx.destination);
-        this.stream = null;
-        this.isStreaming = false;
-    }
-}
-exports.default = StreamingFeatureExtractor;
-
-
-/***/ }),
-/* 4 */,
-/* 5 */
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
-/**
- * Copyright 2017 Google LLC
- *
- * Licensed under the Apache License, Version 2.0 (the
- * "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *   https://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  See the
- * License for the specific language governing permissions and limitations under
- * the License.
- */
-Object.defineProperty(exports, "__esModule", { value: true });
-const AudioUtils_1 = __webpack_require__(0);
-const melspec = __webpack_require__(1);
-const StreamingFeatureExtractor_1 = __webpack_require__(3);
-const PlotGraphs_1 = __webpack_require__(2);
-const nFft = 2048;
-const hopLength = 1024;
-const nMels = 30;
-let arrayBuffer;
-let melSpec;
-const outEl = document.querySelector('#out');
-const streamEl = document.querySelector('#stream');
-const loadEl = document.querySelector('#load');
-const downloadEl = document.querySelector('#download');
-const playEl = document.querySelector('#play');
-function analyzeAudioBuffer(audioBuffer) {
-    analyzeArrayBuffer(audioBuffer.getChannelData(0));
-}
-function analyzeArrayBuffer(buffer) {
-    //const start = 0.2 * 44100;
-    //arrayBuffer = buffer.slice(start, start + 1024);
-    arrayBuffer = buffer;
-    // Clear the output element.
-    outEl.innerHTML = '';
-    const audioEl = PlotGraphs_1.plotAudio(arrayBuffer, PlotGraphs_1.createLayout('Time domain', 'time (s)', 'pressure'));
-    outEl.appendChild(audioEl);
-    // Calculate FFT from ArrayBuffer.
-    const bufferPow2 = arrayBuffer.slice(0, pow2LessThan(arrayBuffer.length));
-    const fft = melspec.fft(bufferPow2);
-    const fftEnergies = melspec.mag(fft);
-    const fftEl = PlotGraphs_1.plotFFT(fftEnergies, PlotGraphs_1.createLayout('Frequency domain', 'frequency (Hz)', 'power (dB)', { logX: false }));
-    outEl.appendChild(fftEl);
-    // Calculate a Mel filterbank.
-    const melFilterbank = melspec.createMelFilterbank({
-        sampleRate: 44100,
-        nFft: bufferPow2.length,
-        nMels: 32,
-    });
-    const melEl = PlotGraphs_1.plotFilterbank(melFilterbank, PlotGraphs_1.createLayout('Mel filterbank', 'frequency (Hz)', 'percent'));
-    outEl.appendChild(melEl);
-    // Calculate STFT from the ArrayBuffer.
-    const stftEnergies = melspec.spectrogram(arrayBuffer, { sampleRate: 44100 });
-    const specEl = PlotGraphs_1.plotSpectrogram(stftEnergies, hopLength, PlotGraphs_1.createLayout('STFT energy spectrogram', 'time (s)', 'frequency (Hz)', { logY: true }));
-    outEl.appendChild(specEl);
-    // Calculate mel energy spectrogram from STFT.
-    melSpec = melspec.melSpectrogram(arrayBuffer, { sampleRate: 44100, nMels, hopLength, nFft });
-    const melSpecEl = PlotGraphs_1.plotSpectrogram(melSpec, hopLength, PlotGraphs_1.createLayout('Mel energy spectrogram', 'time (s)', 'mel bin'));
-    outEl.appendChild(melSpecEl);
-}
-function main() {
-    // Load a short sine buffer.
-    AudioUtils_1.default.loadExampleBuffer().then(analyzeAudioBuffer);
-}
-function min(arr) {
-    return arr.reduce((a, b) => Math.min(a, b));
-}
-function max(arr) {
-    return arr.reduce((a, b) => Math.max(a, b));
-}
-window.addEventListener('load', main);
-const specParams = {
-    sampleRate: 16000,
-    winLength: 2048,
-    hopLength: 512,
-    fMin: 30,
-    nMels: 229
-};
-const streamFeature = new StreamingFeatureExtractor_1.default(specParams);
-streamEl.addEventListener('click', e => {
-    if (streamFeature.isStreaming) {
-        streamFeature.stop();
-        streamEl.innerHTML = 'Stream';
-    }
-    else {
-        streamFeature.start();
-        streamFeature.on('feature', melSpec => {
-            const melSpecEl = PlotGraphs_1.plotSpectrogram(melSpec, hopLength, PlotGraphs_1.createLayout('Mel energy spectrogram', 'time (s)', 'mel bin'));
-            outEl.innerHTML = '';
-            outEl.appendChild(melSpecEl);
-        });
-        streamEl.innerHTML = 'Stop streaming';
-    }
-});
-downloadEl.addEventListener('click', e => {
-    // Download the mel spectrogram.
-    PlotGraphs_1.downloadSpectrogramImage(melSpec);
-});
-loadEl.addEventListener('change', function (e) {
-    const files = this.files;
-    const fileUrl = URL.createObjectURL(files[0]);
-    AudioUtils_1.default.loadBuffer(fileUrl).then(analyzeAudioBuffer);
-});
-playEl.addEventListener('click', e => {
-    AudioUtils_1.default.playbackArrayBuffer(arrayBuffer);
-});
-function pow2LessThan(value) {
-    const exp = Math.log2(value);
-    return Math.pow(2, Math.floor(exp));
-}
-
-
-/***/ }),
-/* 6 */
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
-Object.defineProperty(exports, "__esModule", { value: true });
-const eventemitter3_1 = __webpack_require__(7);
-/**
- * MelFeatureNode.
- */
-class MelFeatureNode extends AudioWorkletNode {
-    constructor(context, config) {
-        super(context, 'mel-feature-processor');
-        this.emitter = new eventemitter3_1.EventEmitter();
-        // Listen to messages from the MelFeatureProcessor.
-        this.port.onmessage = this.handleMessage.bind(this);
-        // Send configuration parameters to the MelFeatureProcessor.
-        this.port.postMessage({ config });
-    }
-    handleMessage(event) {
-        if (event.data.features) {
-            const spec = event.data.features;
-            console.log(`Mel spec of size ${spec.length} x ${spec[0].length}.`);
-            this.emitter.emit('features', spec);
-        }
-    }
-}
-exports.MelFeatureNode = MelFeatureNode;
-
-
-/***/ }),
-/* 7 */
+/***/ "./node_modules/eventemitter3/index.js":
+/*!*********************************************!*\
+  !*** ./node_modules/eventemitter3/index.js ***!
+  \*********************************************/
+/*! no static exports found */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -1166,7 +89,7 @@ var has = Object.prototype.hasOwnProperty
  * An `Events` instance is a plain object whose properties are event names.
  *
  * @constructor
- * @api private
+ * @private
  */
 function Events() {}
 
@@ -1191,10 +114,10 @@ if (Object.create) {
  * Representation of a single event listener.
  *
  * @param {Function} fn The listener function.
- * @param {Mixed} context The context to invoke the listener with.
+ * @param {*} context The context to invoke the listener with.
  * @param {Boolean} [once=false] Specify if the listener is a one-time listener.
  * @constructor
- * @api private
+ * @private
  */
 function EE(fn, context, once) {
   this.fn = fn;
@@ -1203,11 +126,49 @@ function EE(fn, context, once) {
 }
 
 /**
+ * Add a listener for a given event.
+ *
+ * @param {EventEmitter} emitter Reference to the `EventEmitter` instance.
+ * @param {(String|Symbol)} event The event name.
+ * @param {Function} fn The listener function.
+ * @param {*} context The context to invoke the listener with.
+ * @param {Boolean} once Specify if the listener is a one-time listener.
+ * @returns {EventEmitter}
+ * @private
+ */
+function addListener(emitter, event, fn, context, once) {
+  if (typeof fn !== 'function') {
+    throw new TypeError('The listener must be a function');
+  }
+
+  var listener = new EE(fn, context || emitter, once)
+    , evt = prefix ? prefix + event : event;
+
+  if (!emitter._events[evt]) emitter._events[evt] = listener, emitter._eventsCount++;
+  else if (!emitter._events[evt].fn) emitter._events[evt].push(listener);
+  else emitter._events[evt] = [emitter._events[evt], listener];
+
+  return emitter;
+}
+
+/**
+ * Clear event by name.
+ *
+ * @param {EventEmitter} emitter Reference to the `EventEmitter` instance.
+ * @param {(String|Symbol)} evt The Event name.
+ * @private
+ */
+function clearEvent(emitter, evt) {
+  if (--emitter._eventsCount === 0) emitter._events = new Events();
+  else delete emitter._events[evt];
+}
+
+/**
  * Minimal `EventEmitter` interface that is molded against the Node.js
  * `EventEmitter` interface.
  *
  * @constructor
- * @api public
+ * @public
  */
 function EventEmitter() {
   this._events = new Events();
@@ -1219,7 +180,7 @@ function EventEmitter() {
  * listeners.
  *
  * @returns {Array}
- * @api public
+ * @public
  */
 EventEmitter.prototype.eventNames = function eventNames() {
   var names = []
@@ -1242,32 +203,46 @@ EventEmitter.prototype.eventNames = function eventNames() {
 /**
  * Return the listeners registered for a given event.
  *
- * @param {String|Symbol} event The event name.
- * @param {Boolean} exists Only check if there are listeners.
- * @returns {Array|Boolean}
- * @api public
+ * @param {(String|Symbol)} event The event name.
+ * @returns {Array} The registered listeners.
+ * @public
  */
-EventEmitter.prototype.listeners = function listeners(event, exists) {
+EventEmitter.prototype.listeners = function listeners(event) {
   var evt = prefix ? prefix + event : event
-    , available = this._events[evt];
+    , handlers = this._events[evt];
 
-  if (exists) return !!available;
-  if (!available) return [];
-  if (available.fn) return [available.fn];
+  if (!handlers) return [];
+  if (handlers.fn) return [handlers.fn];
 
-  for (var i = 0, l = available.length, ee = new Array(l); i < l; i++) {
-    ee[i] = available[i].fn;
+  for (var i = 0, l = handlers.length, ee = new Array(l); i < l; i++) {
+    ee[i] = handlers[i].fn;
   }
 
   return ee;
 };
 
 /**
+ * Return the number of listeners listening to a given event.
+ *
+ * @param {(String|Symbol)} event The event name.
+ * @returns {Number} The number of listeners.
+ * @public
+ */
+EventEmitter.prototype.listenerCount = function listenerCount(event) {
+  var evt = prefix ? prefix + event : event
+    , listeners = this._events[evt];
+
+  if (!listeners) return 0;
+  if (listeners.fn) return 1;
+  return listeners.length;
+};
+
+/**
  * Calls each of the listeners registered for a given event.
  *
- * @param {String|Symbol} event The event name.
+ * @param {(String|Symbol)} event The event name.
  * @returns {Boolean} `true` if the event had listeners, else `false`.
- * @api public
+ * @public
  */
 EventEmitter.prototype.emit = function emit(event, a1, a2, a3, a4, a5) {
   var evt = prefix ? prefix + event : event;
@@ -1324,60 +299,45 @@ EventEmitter.prototype.emit = function emit(event, a1, a2, a3, a4, a5) {
 /**
  * Add a listener for a given event.
  *
- * @param {String|Symbol} event The event name.
+ * @param {(String|Symbol)} event The event name.
  * @param {Function} fn The listener function.
- * @param {Mixed} [context=this] The context to invoke the listener with.
+ * @param {*} [context=this] The context to invoke the listener with.
  * @returns {EventEmitter} `this`.
- * @api public
+ * @public
  */
 EventEmitter.prototype.on = function on(event, fn, context) {
-  var listener = new EE(fn, context || this)
-    , evt = prefix ? prefix + event : event;
-
-  if (!this._events[evt]) this._events[evt] = listener, this._eventsCount++;
-  else if (!this._events[evt].fn) this._events[evt].push(listener);
-  else this._events[evt] = [this._events[evt], listener];
-
-  return this;
+  return addListener(this, event, fn, context, false);
 };
 
 /**
  * Add a one-time listener for a given event.
  *
- * @param {String|Symbol} event The event name.
+ * @param {(String|Symbol)} event The event name.
  * @param {Function} fn The listener function.
- * @param {Mixed} [context=this] The context to invoke the listener with.
+ * @param {*} [context=this] The context to invoke the listener with.
  * @returns {EventEmitter} `this`.
- * @api public
+ * @public
  */
 EventEmitter.prototype.once = function once(event, fn, context) {
-  var listener = new EE(fn, context || this, true)
-    , evt = prefix ? prefix + event : event;
-
-  if (!this._events[evt]) this._events[evt] = listener, this._eventsCount++;
-  else if (!this._events[evt].fn) this._events[evt].push(listener);
-  else this._events[evt] = [this._events[evt], listener];
-
-  return this;
+  return addListener(this, event, fn, context, true);
 };
 
 /**
  * Remove the listeners of a given event.
  *
- * @param {String|Symbol} event The event name.
+ * @param {(String|Symbol)} event The event name.
  * @param {Function} fn Only remove the listeners that match this function.
- * @param {Mixed} context Only remove the listeners that have this context.
+ * @param {*} context Only remove the listeners that have this context.
  * @param {Boolean} once Only remove one-time listeners.
  * @returns {EventEmitter} `this`.
- * @api public
+ * @public
  */
 EventEmitter.prototype.removeListener = function removeListener(event, fn, context, once) {
   var evt = prefix ? prefix + event : event;
 
   if (!this._events[evt]) return this;
   if (!fn) {
-    if (--this._eventsCount === 0) this._events = new Events();
-    else delete this._events[evt];
+    clearEvent(this, evt);
     return this;
   }
 
@@ -1385,19 +345,18 @@ EventEmitter.prototype.removeListener = function removeListener(event, fn, conte
 
   if (listeners.fn) {
     if (
-         listeners.fn === fn
-      && (!once || listeners.once)
-      && (!context || listeners.context === context)
+      listeners.fn === fn &&
+      (!once || listeners.once) &&
+      (!context || listeners.context === context)
     ) {
-      if (--this._eventsCount === 0) this._events = new Events();
-      else delete this._events[evt];
+      clearEvent(this, evt);
     }
   } else {
     for (var i = 0, events = [], length = listeners.length; i < length; i++) {
       if (
-           listeners[i].fn !== fn
-        || (once && !listeners[i].once)
-        || (context && listeners[i].context !== context)
+        listeners[i].fn !== fn ||
+        (once && !listeners[i].once) ||
+        (context && listeners[i].context !== context)
       ) {
         events.push(listeners[i]);
       }
@@ -1407,8 +366,7 @@ EventEmitter.prototype.removeListener = function removeListener(event, fn, conte
     // Reset the array, or remove it completely if we have no more listeners.
     //
     if (events.length) this._events[evt] = events.length === 1 ? events[0] : events;
-    else if (--this._eventsCount === 0) this._events = new Events();
-    else delete this._events[evt];
+    else clearEvent(this, evt);
   }
 
   return this;
@@ -1417,19 +375,16 @@ EventEmitter.prototype.removeListener = function removeListener(event, fn, conte
 /**
  * Remove all listeners, or those of the specified event.
  *
- * @param {String|Symbol} [event] The event name.
+ * @param {(String|Symbol)} [event] The event name.
  * @returns {EventEmitter} `this`.
- * @api public
+ * @public
  */
 EventEmitter.prototype.removeAllListeners = function removeAllListeners(event) {
   var evt;
 
   if (event) {
     evt = prefix ? prefix + event : event;
-    if (this._events[evt]) {
-      if (--this._eventsCount === 0) this._events = new Events();
-      else delete this._events[evt];
-    }
+    if (this._events[evt]) clearEvent(this, evt);
   } else {
     this._events = new Events();
     this._eventsCount = 0;
@@ -1443,13 +398,6 @@ EventEmitter.prototype.removeAllListeners = function removeAllListeners(event) {
 //
 EventEmitter.prototype.off = EventEmitter.prototype.removeListener;
 EventEmitter.prototype.addListener = EventEmitter.prototype.on;
-
-//
-// This function doesn't apply anymore.
-//
-EventEmitter.prototype.setMaxListeners = function setMaxListeners() {
-  return this;
-};
 
 //
 // Expose the prefix.
@@ -1470,7 +418,12 @@ if (true) {
 
 
 /***/ }),
-/* 8 */
+
+/***/ "./node_modules/fft.js/lib/fft.js":
+/*!****************************************!*\
+  !*** ./node_modules/fft.js/lib/fft.js ***!
+  \****************************************/
+/*! no static exports found */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -1983,6 +936,1127 @@ FFT.prototype._singleRealTransform4 = function _singleRealTransform4(outOff,
 };
 
 
+/***/ }),
+
+/***/ "./src/AudioUtils.ts":
+/*!***************************!*\
+  !*** ./src/AudioUtils.ts ***!
+  \***************************/
+/*! no static exports found */
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
+    return new (P || (P = Promise))(function (resolve, reject) {
+        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
+        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
+        function step(result) { result.done ? resolve(result.value) : new P(function (resolve) { resolve(result.value); }).then(fulfilled, rejected); }
+        step((generator = generator.apply(thisArg, _arguments || [])).next());
+    });
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const SR = 44100;
+let melFilterbank = null;
+let context = null;
+class AudioUtils {
+    static loadExampleBuffer() {
+        return AudioUtils.loadBuffer('assets/spoken_command_example.wav');
+    }
+    static loadSineBuffer() {
+        return AudioUtils.loadBuffer('assets/sine_100ms_example.wav');
+    }
+    static loadBuffer(url) {
+        if (!context) {
+            context = new AudioContext();
+        }
+        return new Promise((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            // Load an example of speech being spoken.
+            xhr.open('GET', url);
+            xhr.onload = () => {
+                context.decodeAudioData(xhr.response, buffer => {
+                    resolve(buffer);
+                });
+            };
+            xhr.responseType = 'arraybuffer';
+            xhr.onerror = (err) => reject(err);
+            xhr.send();
+        });
+    }
+    static loadBufferOffline(url) {
+        return __awaiter(this, void 0, void 0, function* () {
+            const offlineCtx = new OfflineAudioContext(1, 16000, 16000);
+            return fetch(url).then(body => body.arrayBuffer())
+                .then(buffer => offlineCtx.decodeAudioData(buffer));
+        });
+    }
+    /**
+     * Calculates the FFT for an array buffer. Output is an array.
+     */
+    static fft(y) {
+        const fftr = null;
+        const transform = fftr.forward(y);
+        fftr.dispose();
+        return transform;
+    }
+    /**
+     * Calculates the STFT, given a fft size, and a hop size. For example, if fft
+     * size is 2048 and hop size is 1024, there will be 50% overlap. Given those
+     * params, if the input sample has 4096 values, there would be 3 analysis
+     * frames: [0, 2048], [1024, 3072], [2048, 4096].
+     */
+    static stft(y, fftSize = 2048, hopSize = fftSize) {
+        // Split the input buffer into sub-buffers of size fftSize.
+        const bufferCount = Math.floor((y.length - fftSize) / hopSize) + 1;
+        let matrix = range(bufferCount).map(x => new Float32Array(fftSize));
+        for (let i = 0; i < bufferCount; i++) {
+            const ind = i * hopSize;
+            const buffer = y.slice(ind, ind + fftSize);
+            // In the end, we will likely have an incomplete buffer, which we should
+            // just ignore.
+            if (buffer.length != fftSize) {
+                continue;
+            }
+            const win = AudioUtils.hannWindow(buffer.length);
+            const winBuffer = AudioUtils.applyWindow(buffer, win);
+            const fft = AudioUtils.fft(winBuffer);
+            // TODO: Understand why fft output is 2 larger than expected (eg. 1026
+            // rather than 1024).
+            matrix[i].set(fft.slice(0, fftSize));
+        }
+        return matrix;
+    }
+    /**
+     * Given STFT energies, calculates the mel spectrogram.
+     */
+    static melSpectrogram(stftEnergies, melCount = 20, lowHz = 300, highHz = 8000, sr = SR) {
+        this.lazyCreateMelFilterbank(stftEnergies[0].length, melCount, lowHz, highHz, sr);
+        // For each fft slice, calculate the corresponding mel values.
+        const out = [];
+        for (let i = 0; i < stftEnergies.length; i++) {
+            out[i] = AudioUtils.applyFilterbank(stftEnergies[i], melFilterbank);
+        }
+        return out;
+    }
+    static lazyCreateMelFilterbank(length, melCount = 20, lowHz = 300, highHz = 8000, sr = SR) {
+        // Lazy-create a Mel filterbank.
+        if (!melFilterbank || melFilterbank.length != length) {
+            melFilterbank = this.createMelFilterbank(length, melCount, lowHz, highHz, sr);
+        }
+    }
+    /**
+     * Given an interlaced complex array (y_i is real, y_(i+1) is imaginary),
+     * calculates the magnitudes. Output is half the size.
+     */
+    static fftMags(y) {
+        let out = new Float32Array(y.length / 2);
+        for (let i = 0; i < y.length / 2; i++) {
+            out[i] = Math.hypot(y[i * 2], y[i * 2 + 1]);
+        }
+        return out;
+    }
+    /**
+     * Given an interlaced complex array (y_i is real, y_(i+1) is imaginary),
+     * calculates the energies. Output is half the size.
+     */
+    static fftEnergies(y) {
+        let out = new Float32Array(y.length / 2);
+        for (let i = 0; i < y.length / 2; i++) {
+            out[i] = y[i * 2] * y[i * 2] + y[i * 2 + 1] * y[i * 2 + 1];
+        }
+        return out;
+    }
+    /**
+     * Generates a Hann window of a given length.
+     */
+    static hannWindow(length) {
+        let win = new Float32Array(length);
+        for (let i = 0; i < length; i++) {
+            win[i] = 0.5 * (1 - Math.cos(2 * Math.PI * i / (length - 1)));
+        }
+        return win;
+    }
+    /**
+     * Applies a window to a buffer (point-wise multiplication).
+     */
+    static applyWindow(buffer, win) {
+        if (buffer.length != win.length) {
+            console.error(`Buffer length ${buffer.length} != window length
+        ${win.length}.`);
+            return;
+        }
+        let out = new Float32Array(buffer.length);
+        for (let i = 0; i < buffer.length; i++) {
+            out[i] = win[i] * buffer[i];
+        }
+        return out;
+    }
+    static pointWiseMultiply(out, array1, array2) {
+        if (out.length != array1.length || array1.length != array2.length) {
+            console.error(`Output length ${out.length} != array1 length
+        ${array1.length} != array2 length ${array2.length}.`);
+            return;
+        }
+        for (let i = 0; i < out.length; i++) {
+            out[i] = array1[i] * array2[i];
+        }
+        return out;
+    }
+    static createMelFilterbank(fftSize, melCount = 20, lowHz = 300, highHz = 8000, sr = SR) {
+        const lowMel = this.hzToMel(lowHz);
+        const highMel = this.hzToMel(highHz);
+        // Construct linearly spaced array of melCount intervals, between lowMel and
+        // highMel.
+        const mels = linearSpace(lowMel, highMel, melCount + 2);
+        // Convert from mels to hz.
+        const hzs = mels.map(mel => this.melToHz(mel));
+        // Go from hz to the corresponding bin in the FFT.
+        const bins = hzs.map(hz => this.freqToBin(hz, fftSize));
+        // Now that we have the start and end frequencies, create each triangular
+        // window (each value in [0, 1]) that we will apply to an FFT later. These
+        // are mostly sparse, except for the values of the triangle
+        const length = bins.length - 2;
+        const filters = [];
+        for (let i = 0; i < length; i++) {
+            // Now generate the triangles themselves.
+            filters[i] = this.triangleWindow(fftSize, bins[i], bins[i + 1], bins[i + 2]);
+        }
+        return filters;
+    }
+    /**
+     * Given an array of FFT magnitudes, apply a filterbank. Output should be an
+     * array with size |filterbank|.
+     */
+    static applyFilterbank(fftEnergies, filterbank) {
+        if (fftEnergies.length != filterbank[0].length) {
+            console.error(`Each entry in filterbank should have dimensions matching
+        FFT. |FFT| = ${fftEnergies.length}, |filterbank[0]| = ${filterbank[0].length}.`);
+            return;
+        }
+        // Apply each filter to the whole FFT signal to get one value.
+        let out = new Float32Array(filterbank.length);
+        for (let i = 0; i < filterbank.length; i++) {
+            // To calculate filterbank energies we multiply each filterbank with the
+            // power spectrum.
+            const win = AudioUtils.applyWindow(fftEnergies, filterbank[i]);
+            // Then add up the coefficents, and take the log.
+            out[i] = logGtZero(sum(win));
+        }
+        return out;
+    }
+    static hzToMel(hz) {
+        return 1125 * Math.log(1 + hz / 700);
+    }
+    static melToHz(mel) {
+        return 700 * (Math.exp(mel / 1125) - 1);
+    }
+    static freqToBin(freq, fftSize, sr = SR) {
+        return Math.floor((fftSize + 1) * freq / (sr / 2));
+    }
+    /**
+     * Creates a triangular window.
+     */
+    static triangleWindow(length, startIndex, peakIndex, endIndex) {
+        const win = new Float32Array(length);
+        const deltaUp = 1.0 / (peakIndex - startIndex);
+        for (let i = startIndex; i < peakIndex; i++) {
+            // Linear ramp up between start and peak index (values from 0 to 1).
+            win[i] = (i - startIndex) * deltaUp;
+        }
+        const deltaDown = 1.0 / (endIndex - peakIndex);
+        for (let i = peakIndex; i < endIndex; i++) {
+            // Linear ramp down between peak and end index (values from 1 to 0).
+            win[i] = 1 - (i - peakIndex) * deltaDown;
+        }
+        return win;
+    }
+    static normalizeSpecInPlace(spec, normMin = 0, normMax = 1) {
+        let min = Infinity;
+        let max = -Infinity;
+        const times = spec.length;
+        const freqs = spec[0].length;
+        for (let i = 0; i < times; i++) {
+            for (let j = 0; j < freqs; j++) {
+                const val = spec[i][j];
+                if (val < min) {
+                    min = val;
+                }
+                if (val > max) {
+                    max = val;
+                }
+            }
+        }
+        const scale = (normMax - normMin) / (max - min);
+        const offset = normMin - min;
+        for (let i = 0; i < times; i++) {
+            for (let j = 0; j < freqs; j++) {
+                // Get a normalized value in [0, 1].
+                const norm = (spec[i][j] - min) / (max - min);
+                // Then convert it to the desired range.
+                spec[i][j] = normMin + norm * (normMax - normMin);
+            }
+        }
+    }
+    static playbackArrayBuffer(buffer, sampleRate) {
+        if (!context) {
+            context = new AudioContext();
+        }
+        if (!sampleRate) {
+            sampleRate = context.sampleRate;
+        }
+        const audioBuffer = context.createBuffer(1, buffer.length, sampleRate);
+        const audioBufferData = audioBuffer.getChannelData(0);
+        audioBufferData.set(buffer);
+        const source = context.createBufferSource();
+        source.buffer = audioBuffer;
+        source.connect(context.destination);
+        source.start();
+    }
+}
+exports.default = AudioUtils;
+function linearSpace(start, end, count) {
+    const delta = (end - start) / (count + 1);
+    let out = [];
+    for (let i = 0; i < count; i++) {
+        out[i] = start + delta * i;
+    }
+    return out;
+}
+function sum(array) {
+    return array.reduce(function (a, b) { return a + b; });
+}
+function range(count) {
+    let out = [];
+    for (let i = 0; i < count; i++) {
+        out.push(i);
+    }
+    return out;
+}
+// Use a lower minimum value for energy.
+const MIN_VAL = -10;
+function logGtZero(val) {
+    // Ensure that the log argument is nonnegative.
+    const offset = Math.exp(MIN_VAL);
+    return Math.log(val + offset);
+}
+function resample(audioBuffer, targetSr) {
+    const sourceSr = audioBuffer.sampleRate;
+    const lengthRes = audioBuffer.length * targetSr / sourceSr;
+    console.log(window.OfflineAudioContext);
+    const offlineCtx = new OfflineAudioContext(1, lengthRes, targetSr);
+    return new Promise((resolve, reject) => {
+        const bufferSource = offlineCtx.createBufferSource();
+        bufferSource.buffer = audioBuffer;
+        offlineCtx.oncomplete = function (event) {
+            const bufferRes = event.renderedBuffer;
+            const len = bufferRes.length;
+            //console.log(`Resampled buffer from ${audioBuffer.length} to ${len}.`);
+            resolve(bufferRes);
+        };
+        bufferSource.connect(offlineCtx.destination);
+        bufferSource.start();
+        offlineCtx.startRendering();
+    });
+}
+exports.resample = resample;
+
+
+/***/ }),
+
+/***/ "./src/MelSpectrogram.ts":
+/*!*******************************!*\
+  !*** ./src/MelSpectrogram.ts ***!
+  \*******************************/
+/*! no static exports found */
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", { value: true });
+const FFT = __webpack_require__(/*! fft.js */ "./node_modules/fft.js/lib/fft.js");
+function magSpectrogram(stft, power) {
+    //console.log(`magSpectrogram on ${stft.length} x ${stft[0].length} power=${power}`);
+    const spec = stft.map(fft => pow(mag(fft), power));
+    const nFft = stft[0].length - 1;
+    return [spec, nFft];
+}
+exports.magSpectrogram = magSpectrogram;
+function stft(y, params) {
+    const nFft = params.nFft || 2048;
+    const winLength = params.winLength || nFft;
+    const hopLength = params.hopLength || Math.floor(winLength / 4);
+    let fftWindow = hannWindow(winLength);
+    // Pad the window to be the size of nFft.
+    fftWindow = padCenterToLength(fftWindow, nFft);
+    // Pad the time series so that the frames are centered.
+    y = padReflect(y, Math.floor(nFft / 2));
+    // Window the time series.
+    const yFrames = frame(y, nFft, hopLength);
+    //console.log(`Split audio into ${yFrames.length} frames of ${yFrames[0].length} each.`);
+    // Pre-allocate the STFT matrix.
+    const stftMatrix = [];
+    const width = yFrames.length;
+    const height = nFft + 2;
+    //console.log(`Creating STFT matrix of size ${width} x ${height}.`);
+    for (let i = 0; i < width; i++) {
+        // Each column is a Float32Array of size height.
+        const col = new Float32Array(height);
+        stftMatrix[i] = col;
+    }
+    for (let i = 0; i < width; i++) {
+        // Populate the STFT matrix.
+        const winBuffer = applyWindow(yFrames[i], fftWindow);
+        const col = fft(winBuffer);
+        stftMatrix[i].set(col.slice(0, height));
+    }
+    return stftMatrix;
+}
+exports.stft = stft;
+function spectrogram(y, params) {
+    if (!params.power) {
+        params.power = 1;
+    }
+    const stftMatrix = stft(y, params);
+    const [spec, nFft] = magSpectrogram(stftMatrix, params.power);
+    return spec;
+}
+exports.spectrogram = spectrogram;
+function melSpectrogram(y, params) {
+    if (!params.power) {
+        params.power = 2.0;
+    }
+    const stftMatrix = stft(y, params);
+    const [spec, nFft] = magSpectrogram(stftMatrix, params.power);
+    params.nFft = nFft;
+    const melBasis = createMelFilterbank(params);
+    return applyWholeFilterbank(spec, melBasis);
+}
+exports.melSpectrogram = melSpectrogram;
+function applyWholeFilterbank(spec, filterbank) {
+    // Apply a point-wise dot product between the array of arrays.
+    const out = [];
+    for (let i = 0; i < spec.length; i++) {
+        out[i] = applyFilterbank(spec[i], filterbank);
+    }
+    return out;
+}
+exports.applyWholeFilterbank = applyWholeFilterbank;
+function applyFilterbank(mags, filterbank) {
+    if (mags.length != filterbank[0].length) {
+        throw new Error(`Each entry in filterbank should have dimensions ` +
+            `matching FFT. |mags| = ${mags.length}, ` +
+            `|filterbank[0]| = ${filterbank[0].length}.`);
+    }
+    // Apply each filter to the whole FFT signal to get one value.
+    let out = new Float32Array(filterbank.length);
+    for (let i = 0; i < filterbank.length; i++) {
+        // To calculate filterbank energies we multiply each filterbank with the
+        // power spectrum.
+        const win = applyWindow(mags, filterbank[i]);
+        // Then add up the coefficents.
+        out[i] = sum(win);
+    }
+    return out;
+}
+exports.applyFilterbank = applyFilterbank;
+function applyWindow(buffer, win) {
+    if (buffer.length != win.length) {
+        console.error(`Buffer length ${buffer.length} != window length ${win.length}.`);
+        return;
+    }
+    let out = new Float32Array(buffer.length);
+    for (let i = 0; i < buffer.length; i++) {
+        out[i] = win[i] * buffer[i];
+    }
+    return out;
+}
+exports.applyWindow = applyWindow;
+function padCenterToLength(data, length) {
+    // If data is longer than length, error!
+    if (data.length > length) {
+        throw new Error('Data is longer than length.');
+    }
+    const paddingLeft = Math.floor((length - data.length) / 2);
+    const paddingRight = length - data.length - paddingLeft;
+    return padConstant(data, [paddingLeft, paddingRight]);
+}
+exports.padCenterToLength = padCenterToLength;
+function padConstant(data, padding) {
+    let padLeft, padRight;
+    if (typeof (padding) == 'object') {
+        [padLeft, padRight] = padding;
+    }
+    else {
+        padLeft = padRight = padding;
+    }
+    const out = new Float32Array(data.length + padLeft + padRight);
+    out.set(data, padLeft);
+    return out;
+}
+exports.padConstant = padConstant;
+function padReflect(data, padding) {
+    const out = padConstant(data, padding);
+    for (let i = 0; i < padding; i++) {
+        // Pad the beginning with reflected values.
+        out[i] = out[2 * padding - i];
+        // Pad the end with reflected values.
+        out[out.length - i - 1] = out[out.length - 2 * padding + i - 1];
+    }
+    return out;
+}
+exports.padReflect = padReflect;
+/**
+ * Given a timeseries, returns an array of timeseries that are windowed
+ * according to the params specified.
+ */
+function frame(data, frameLength, hopLength) {
+    const bufferCount = Math.floor((data.length - frameLength) / hopLength) + 1;
+    let buffers = range(bufferCount).map(x => new Float32Array(frameLength));
+    for (let i = 0; i < bufferCount; i++) {
+        const ind = i * hopLength;
+        const buffer = data.slice(ind, ind + frameLength);
+        buffers[i].set(buffer);
+        // In the end, we will likely have an incomplete buffer, which we should
+        // just ignore.
+        if (buffer.length != frameLength) {
+            continue;
+        }
+    }
+    return buffers;
+}
+exports.frame = frame;
+function createMelFilterbank(params) {
+    const fMin = params.fMin || 0;
+    const fMax = params.fMax || params.sampleRate / 2;
+    const nMels = params.nMels || 128;
+    const nFft = params.nFft || 2048;
+    // Center freqs of each FFT band.
+    const fftFreqs = calculateFftFreqs(params.sampleRate, nFft);
+    // (Pseudo) center freqs of each Mel band.
+    const melFreqs = calculateMelFreqs(nMels + 2, fMin, fMax);
+    const melDiff = internalDiff(melFreqs);
+    const ramps = outerSubtract(melFreqs, fftFreqs);
+    const filterSize = ramps[0].length;
+    const weights = [];
+    for (let i = 0; i < nMels; i++) {
+        weights[i] = new Float32Array(filterSize);
+        for (let j = 0; j < ramps[i].length; j++) {
+            const lower = -ramps[i][j] / melDiff[i];
+            const upper = ramps[i + 2][j] / melDiff[i + 1];
+            const weight = Math.max(0, Math.min(lower, upper));
+            weights[i][j] = weight;
+        }
+    }
+    // Slaney-style mel is scaled to be approx constant energy per channel.
+    for (let i = 0; i < weights.length; i++) {
+        // How much energy per channel.
+        const enorm = 2.0 / (melFreqs[2 + i] - melFreqs[i]);
+        // Normalize by that amount.
+        weights[i] = weights[i].map(val => val * enorm);
+    }
+    return weights;
+}
+exports.createMelFilterbank = createMelFilterbank;
+function fft(y) {
+    const fft = new FFT(y.length);
+    const out = fft.createComplexArray();
+    const data = fft.toComplexArray(y);
+    fft.transform(out, data);
+    return out;
+}
+exports.fft = fft;
+function hannWindow(length) {
+    let win = new Float32Array(length);
+    for (let i = 0; i < length; i++) {
+        win[i] = 0.5 * (1 - Math.cos(2 * Math.PI * i / (length - 1)));
+    }
+    return win;
+}
+exports.hannWindow = hannWindow;
+function array(arr) {
+    const out = new Float32Array(arr.length);
+    out.set(arr);
+    return out;
+}
+exports.array = array;
+const MIN_VAL = -10;
+function logGtZero(val) {
+    // Ensure that the log argument is nonnegative.
+    const offset = Math.exp(MIN_VAL);
+    return Math.log(val + offset);
+}
+exports.logGtZero = logGtZero;
+function sum(array) {
+    return array.reduce(function (a, b) { return a + b; });
+}
+exports.sum = sum;
+function range(count) {
+    let out = [];
+    for (let i = 0; i < count; i++) {
+        out.push(i);
+    }
+    return out;
+}
+exports.range = range;
+function linearSpace(start, end, count) {
+    // Include start and endpoints.
+    const delta = (end - start) / (count - 1);
+    let out = new Float32Array(count);
+    for (let i = 0; i < count; i++) {
+        out[i] = start + delta * i;
+    }
+    return out;
+}
+exports.linearSpace = linearSpace;
+/**
+ * Given an interlaced complex array (y_i is real, y_(i+1) is imaginary),
+ * calculates the energies. Output is half the size.
+ */
+function mag(y) {
+    let out = new Float32Array(y.length / 2);
+    for (let i = 0; i < y.length / 2; i++) {
+        out[i] = Math.sqrt(y[i * 2] * y[i * 2] + y[i * 2 + 1] * y[i * 2 + 1]);
+    }
+    return out;
+}
+exports.mag = mag;
+function powerToDb(spec, amin = 1e-10, refValue = 1.0, topDb = 80.0) {
+    const width = spec.length;
+    const height = spec[0].length;
+    const logSpec = [];
+    for (let i = 0; i < width; i++) {
+        logSpec[i] = new Float32Array(height);
+    }
+    for (let i = 0; i < width; i++) {
+        for (let j = 0; j < height; j++) {
+            const val = spec[i][j];
+            let logVal = 10.0 * Math.log10(Math.max(amin, val));
+            logVal -= 10.0 * Math.log10(Math.max(amin, refValue));
+            logSpec[i][j] = logVal;
+        }
+    }
+    if (topDb) {
+        if (topDb < 0) {
+            throw new Error(`topDb must be non-negative.`);
+        }
+        for (let i = 0; i < width; i++) {
+            const maxVal = max(logSpec[i]);
+            for (let j = 0; j < height; j++) {
+                logSpec[i][j] = Math.max(logSpec[i][j], maxVal - topDb);
+            }
+        }
+    }
+    return logSpec;
+}
+exports.powerToDb = powerToDb;
+function hzToMel(hz) {
+    return 1125.0 * Math.log(1 + hz / 700.0);
+}
+exports.hzToMel = hzToMel;
+function melToHz(mel) {
+    return 700.0 * (Math.exp(mel / 1125.0) - 1);
+}
+exports.melToHz = melToHz;
+function freqToBin(freq, nFft, sr) {
+    return Math.floor((nFft + 1) * freq / (sr / 2));
+}
+function flatten2D(spec) {
+    const length = spec[0].length * spec.length;
+    const out = new Float32Array(length);
+    const height = spec[0].length;
+    const width = spec.length;
+    for (let i = 0; i < width; i++) {
+        for (let j = 0; j < height; j++) {
+            out[j * width + i] = spec[i][j];
+        }
+    }
+    return out;
+}
+exports.flatten2D = flatten2D;
+function calculateFftFreqs(sampleRate, nFft) {
+    return linearSpace(0, sampleRate / 2, Math.floor(1 + nFft / 2));
+}
+exports.calculateFftFreqs = calculateFftFreqs;
+function calculateMelFreqs(nMels, fMin, fMax) {
+    const melMin = hzToMel(fMin);
+    const melMax = hzToMel(fMax);
+    // Construct linearly spaced array of nMel intervals, between melMin and
+    // melMax.
+    const mels = linearSpace(melMin, melMax, nMels);
+    const hzs = mels.map(mel => melToHz(mel));
+    return hzs;
+}
+exports.calculateMelFreqs = calculateMelFreqs;
+function internalDiff(arr) {
+    const out = new Float32Array(arr.length - 1);
+    for (let i = 0; i < arr.length; i++) {
+        out[i] = arr[i + 1] - arr[i];
+    }
+    return out;
+}
+exports.internalDiff = internalDiff;
+function outerSubtract(arr, arr2) {
+    const out = [];
+    for (let i = 0; i < arr.length; i++) {
+        out[i] = new Float32Array(arr2.length);
+    }
+    for (let i = 0; i < arr.length; i++) {
+        for (let j = 0; j < arr2.length; j++) {
+            out[i][j] = arr[i] - arr2[j];
+        }
+    }
+    return out;
+}
+exports.outerSubtract = outerSubtract;
+function pow(arr, power) {
+    return arr.map(v => Math.pow(v, power));
+}
+exports.pow = pow;
+function max(arr) {
+    return arr.reduce((a, b) => Math.max(a, b));
+}
+exports.max = max;
+
+
+/***/ }),
+
+/***/ "./src/PlotGraphs.ts":
+/*!***************************!*\
+  !*** ./src/PlotGraphs.ts ***!
+  \***************************/
+/*! no static exports found */
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+/**
+ * Copyright 2017 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+ * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  See the
+ * License for the specific language governing permissions and limitations under
+ * the License.
+ */
+Object.defineProperty(exports, "__esModule", { value: true });
+const sr = 44100;
+const nyquist = sr / 2;
+function plotAudio(y, layout) {
+    let t = y.map((value, index) => (index / sr));
+    return plotXY(t, y, layout);
+}
+exports.plotAudio = plotAudio;
+function plotCoeffs(y, layout) {
+    let ind = y.map((value, index) => index);
+    return plotXY(ind, y, layout);
+}
+exports.plotCoeffs = plotCoeffs;
+function plotFFT(fftMags, layout) {
+    // Convert magnitudes to dB.
+    const dbs = fftMags.map(val => 20 * Math.log10(val));
+    const times = fftMags.map((value, index) => index / fftMags.length * nyquist);
+    return plotXY(times, fftMags, layout);
+}
+exports.plotFFT = plotFFT;
+function plotFilterbank(filterbank, layout) {
+    let filter = filterbank[0];
+    const inds = filter.map((value, index) => index);
+    return plotXYs(inds, filterbank, layout, 8000);
+}
+exports.plotFilterbank = plotFilterbank;
+function plotSpectrogram(spec, samplesPerSlice, layout) {
+    // The STFT as given is an Float32Array[]. We need to render that matrix as an
+    // image.
+    return plotImage(spec, samplesPerSlice, layout);
+}
+exports.plotSpectrogram = plotSpectrogram;
+function downloadSpectrogramImage(spec) {
+    // Render the spectrogram into a 2D canvas.
+    const canvas = document.createElement('canvas');
+    const times = spec.length;
+    const freqs = spec[0].length;
+    canvas.width = times;
+    canvas.height = freqs;
+    const ctx = canvas.getContext('2d');
+    for (let i = 0; i < times; i++) {
+        for (let j = 0; j < freqs; j++) {
+            const val = Math.floor(spec[i][j] * 255);
+            ctx.fillStyle = `rgb(${val}, ${val}, ${val})`;
+            ctx.strokeStyle = null;
+            ctx.fillRect(i, j, 1, 1);
+        }
+    }
+    // Download the canvas.
+    var link = document.createElement('a');
+    link.setAttribute('download', 'spec.png');
+    link.setAttribute('href', canvas.toDataURL('image/png').replace('image/png', 'image/octet-stream'));
+    link.click();
+}
+exports.downloadSpectrogramImage = downloadSpectrogramImage;
+function plotImage(stft, samplesPerSlice, layout) {
+    let out = document.createElement('div');
+    out.className = 'plot';
+    // Transpose the spectrogram we pass in.
+    let zArr = [];
+    for (let i = 0; i < stft.length; i++) {
+        for (let j = 0; j < stft[0].length; j++) {
+            if (zArr[j] == undefined) {
+                zArr[j] = [];
+            }
+            zArr[j][i] = stft[i][j];
+        }
+    }
+    // Calculate the X values (times) from the stft params.
+    const xArr = stft.map((value, index) => index * samplesPerSlice / sr);
+    // Calculate Y values (frequencies) from stft.
+    const fft = Array.prototype.slice.call(stft[0]);
+    const yArr = fft.map((value, index) => (index / fft.length) * nyquist);
+    const data = [
+        {
+            x: xArr,
+            y: yArr,
+            z: zArr,
+            type: 'heatmap'
+        }
+    ];
+    Plotly.newPlot(out, data, layout);
+    return out;
+}
+function plotXY(x, y, layout) {
+    const out = document.createElement('div');
+    out.className = 'plot';
+    const xArr = Array.prototype.slice.call(x);
+    const yArr = Array.prototype.slice.call(y);
+    const data = [{
+            x: xArr,
+            y: yArr,
+        }];
+    Plotly.plot(out, data, layout);
+    return out;
+}
+function plotXYs(x, y, layout, maxFreq) {
+    const out = document.createElement('div');
+    out.className = 'plot';
+    const xArr = Array.prototype.slice.call(x);
+    const data = y.map(y_i => {
+        const yArr = Array.prototype.slice.call(y_i);
+        return {
+            x: xArr.slice(0, maxFreq),
+            y: yArr.slice(0, maxFreq),
+        };
+    });
+    Plotly.plot(out, data, layout);
+    return out;
+}
+function createLayout(title, xTitle, yTitle, params = {}) {
+    const logY = (params.logY == true);
+    const logX = (params.logX == true);
+    return {
+        title: title,
+        xaxis: {
+            title: xTitle,
+            type: logX ? 'log' : null,
+        },
+        yaxis: {
+            title: yTitle,
+            type: logY ? 'log' : null,
+        }
+    };
+}
+exports.createLayout = createLayout;
+
+
+/***/ }),
+
+/***/ "./src/StreamingFeatureExtractor.ts":
+/*!******************************************!*\
+  !*** ./src/StreamingFeatureExtractor.ts ***!
+  \******************************************/
+/*! no static exports found */
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+/**
+ * Copyright 2017 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+ * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  See the
+ * License for the specific language governing permissions and limitations under
+ * the License.
+ */
+var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
+    return new (P || (P = Promise))(function (resolve, reject) {
+        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
+        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
+        function step(result) { result.done ? resolve(result.value) : new P(function (resolve) { resolve(result.value); }).then(fulfilled, rejected); }
+        step((generator = generator.apply(thisArg, _arguments || [])).next());
+    });
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const eventemitter3_1 = __webpack_require__(/*! eventemitter3 */ "./node_modules/eventemitter3/index.js");
+const MelSpectrogramNode_1 = __webpack_require__(/*! ./worklet/MelSpectrogramNode */ "./src/worklet/MelSpectrogramNode.ts");
+;
+const audioCtx = new AudioContext();
+/**
+ * Opens an audio stream and extracts Mel spectrogram from it, suitable for
+ * running inference in a TensorFlow.js environment.
+ */
+class StreamingFeatureExtractor extends eventemitter3_1.EventEmitter {
+    constructor(specParams, streamParams) {
+        super();
+        // Where to store the latest spectrogram.
+        this.spectrogram = [];
+        // Are we streaming right now?
+        this.isStreaming = false;
+        // When was the last time we sent out features.
+        this.lastEmitTime = new Date().valueOf();
+        this.specParams = specParams;
+        this.streamParams = streamParams;
+        // Calculate how many columns to store in the spectrogram. Each column
+        // is spaced hopLength samples apart, and represents an FFT of winLength.
+        const specSamples = streamParams.duration * specParams.sampleRate;
+        this.columnLength = Math.floor((specSamples - specParams.hopLength) /
+            specParams.winLength);
+        console.log(`Created StreamingFeatureExtractor with columnLength ${this.columnLength}.`);
+    }
+    getSpectrogram() {
+        return this.spectrogram;
+    }
+    start() {
+        return __awaiter(this, void 0, void 0, function* () {
+            // Open an audio input stream.
+            const constraints = { audio: {
+                    "mandatory": {
+                        "googEchoCancellation": "false",
+                        "googAutoGainControl": "false",
+                        "googNoiseSuppression": "false",
+                        "googHighpassFilter": "false"
+                    },
+                }, video: false };
+            const stream = yield navigator.mediaDevices.getUserMedia(constraints);
+            this.stream = stream;
+            // Create a MelSpectrogramNode (AudioWorklet).
+            yield audioCtx.audioWorklet.addModule('dist/worklet.js');
+            this.melSpecNode = new MelSpectrogramNode_1.MelSpectrogramNode(audioCtx, this.specParams);
+            const source = audioCtx.createMediaStreamSource(stream);
+            source.connect(this.melSpecNode);
+            this.melSpecNode.connect(audioCtx.destination);
+            this.melSpecNode.emitter.on('spectrogram', spec => {
+                for (let column of spec) {
+                    this.spectrogram.push(column);
+                }
+                let overLimit = this.spectrogram.length - this.columnLength;
+                if (overLimit > 0) {
+                    // Remove the excess elements in the array.
+                    this.spectrogram.splice(0, overLimit);
+                    // The buffer is full, see if we should emit.
+                    const now = new Date().valueOf();
+                    const elapsed = (now - this.lastEmitTime) / 1000;
+                    if (elapsed > this.streamParams.delay) {
+                        this.emit('feature', this.spectrogram);
+                        this.lastEmitTime = now;
+                    }
+                }
+            });
+            this.isStreaming = true;
+        });
+    }
+    stop() {
+        for (let track of this.stream.getTracks()) {
+            track.stop();
+        }
+        this.melSpecNode.disconnect(audioCtx.destination);
+        this.stream = null;
+        this.isStreaming = false;
+    }
+}
+exports.default = StreamingFeatureExtractor;
+
+
+/***/ }),
+
+/***/ "./src/index.ts":
+/*!**********************!*\
+  !*** ./src/index.ts ***!
+  \**********************/
+/*! no static exports found */
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+/**
+ * Copyright 2017 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+ * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  See the
+ * License for the specific language governing permissions and limitations under
+ * the License.
+ */
+Object.defineProperty(exports, "__esModule", { value: true });
+const AudioUtils_1 = __webpack_require__(/*! ./AudioUtils */ "./src/AudioUtils.ts");
+const melspec = __webpack_require__(/*! ./MelSpectrogram */ "./src/MelSpectrogram.ts");
+const StreamingFeatureExtractor_1 = __webpack_require__(/*! ./StreamingFeatureExtractor */ "./src/StreamingFeatureExtractor.ts");
+const PlotGraphs_1 = __webpack_require__(/*! ./PlotGraphs */ "./src/PlotGraphs.ts");
+const nFft = 2048;
+const hopLength = 1024;
+const nMels = 30;
+let arrayBuffer;
+let melSpec;
+const outEl = document.querySelector('#out');
+const streamEl = document.querySelector('#stream');
+const loadEl = document.querySelector('#load');
+const downloadEl = document.querySelector('#download');
+const playEl = document.querySelector('#play');
+function analyzeAudioBuffer(audioBuffer) {
+    analyzeArrayBuffer(audioBuffer.getChannelData(0));
+}
+function analyzeArrayBuffer(buffer) {
+    //const start = 0.2 * 44100;
+    //arrayBuffer = buffer.slice(start, start + 1024);
+    arrayBuffer = buffer;
+    // Clear the output element.
+    outEl.innerHTML = '';
+    const audioEl = PlotGraphs_1.plotAudio(arrayBuffer, PlotGraphs_1.createLayout('Time domain', 'time (s)', 'pressure'));
+    outEl.appendChild(audioEl);
+    // Calculate FFT from ArrayBuffer.
+    const bufferPow2 = arrayBuffer.slice(0, pow2LessThan(arrayBuffer.length));
+    const fft = melspec.fft(bufferPow2);
+    const fftEnergies = melspec.mag(fft);
+    const fftEl = PlotGraphs_1.plotFFT(fftEnergies, PlotGraphs_1.createLayout('Frequency domain', 'frequency (Hz)', 'power (dB)', { logX: false }));
+    outEl.appendChild(fftEl);
+    // Calculate a Mel filterbank.
+    const melFilterbank = melspec.createMelFilterbank({
+        sampleRate: 44100,
+        nFft: bufferPow2.length,
+        nMels: 32,
+    });
+    const melEl = PlotGraphs_1.plotFilterbank(melFilterbank, PlotGraphs_1.createLayout('Mel filterbank', 'frequency (Hz)', 'percent'));
+    outEl.appendChild(melEl);
+    // Calculate STFT from the ArrayBuffer.
+    const stftEnergies = melspec.spectrogram(arrayBuffer, { sampleRate: 44100 });
+    const specEl = PlotGraphs_1.plotSpectrogram(stftEnergies, hopLength, PlotGraphs_1.createLayout('STFT energy spectrogram', 'time (s)', 'frequency (Hz)', { logY: true }));
+    outEl.appendChild(specEl);
+    // Calculate mel energy spectrogram from STFT.
+    melSpec = melspec.melSpectrogram(arrayBuffer, { sampleRate: 44100, nMels, hopLength, nFft });
+    const melSpecEl = PlotGraphs_1.plotSpectrogram(melSpec, hopLength, PlotGraphs_1.createLayout('Mel energy spectrogram', 'time (s)', 'mel bin'));
+    outEl.appendChild(melSpecEl);
+}
+function main() {
+    // Load a short sine buffer.
+    AudioUtils_1.default.loadExampleBuffer().then(analyzeAudioBuffer);
+}
+function min(arr) {
+    return arr.reduce((a, b) => Math.min(a, b));
+}
+function max(arr) {
+    return arr.reduce((a, b) => Math.max(a, b));
+}
+window.addEventListener('load', main);
+const specParams = {
+    sampleRate: 16000,
+    winLength: 2048,
+    hopLength: 512,
+    fMin: 30,
+    nMels: 229
+};
+const streamParams = {
+    duration: 2,
+    delay: 1,
+};
+const streamFeature = new StreamingFeatureExtractor_1.default(specParams, streamParams);
+streamEl.addEventListener('click', e => {
+    if (streamFeature.isStreaming) {
+        streamFeature.stop();
+        streamEl.innerHTML = 'Stream';
+    }
+    else {
+        streamFeature.start();
+        streamFeature.on('feature', melSpec => {
+            const nativeHopLength = hopLength * (44100.0 / 16000.0);
+            const melSpecEl = PlotGraphs_1.plotSpectrogram(melSpec, nativeHopLength, PlotGraphs_1.createLayout('Mel energy spectrogram', 'time (s)', 'mel bin'));
+            outEl.innerHTML = '';
+            outEl.appendChild(melSpecEl);
+        });
+        streamEl.innerHTML = 'Stop streaming';
+    }
+});
+downloadEl.addEventListener('click', e => {
+    // Download the mel spectrogram.
+    PlotGraphs_1.downloadSpectrogramImage(melSpec);
+});
+loadEl.addEventListener('change', function (e) {
+    const files = this.files;
+    const fileUrl = URL.createObjectURL(files[0]);
+    AudioUtils_1.default.loadBuffer(fileUrl).then(analyzeAudioBuffer);
+});
+playEl.addEventListener('click', e => {
+    AudioUtils_1.default.playbackArrayBuffer(arrayBuffer);
+});
+function pow2LessThan(value) {
+    const exp = Math.log2(value);
+    return Math.pow(2, Math.floor(exp));
+}
+
+
+/***/ }),
+
+/***/ "./src/worklet/MelSpectrogramNode.ts":
+/*!*******************************************!*\
+  !*** ./src/worklet/MelSpectrogramNode.ts ***!
+  \*******************************************/
+/*! no static exports found */
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", { value: true });
+const eventemitter3_1 = __webpack_require__(/*! eventemitter3 */ "./node_modules/eventemitter3/index.js");
+/**
+ * MelSpectrogramNode.
+ */
+class MelSpectrogramNode extends AudioWorkletNode {
+    constructor(context, config) {
+        super(context, 'mel-spectrogram-processor');
+        this.emitter = new eventemitter3_1.EventEmitter();
+        // Listen to messages from the MelSpectrogramProcessor.
+        this.port.onmessage = this.handleMessage.bind(this);
+        // Send configuration parameters to the MelSpectrogramProcessor.
+        this.port.postMessage({ config });
+    }
+    handleMessage(event) {
+        if (event.data.features) {
+            const spec = event.data.features;
+            console.log(`Mel spec of size ${spec.length} x ${spec[0].length}.`);
+            this.emitter.emit('spectrogram', spec);
+        }
+    }
+}
+exports.MelSpectrogramNode = MelSpectrogramNode;
+
+
 /***/ })
-/******/ ]);
+
+/******/ });
 //# sourceMappingURL=bundle.js.map

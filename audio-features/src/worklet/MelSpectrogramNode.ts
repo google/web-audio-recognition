@@ -2,18 +2,18 @@ import {SpecParams} from '../MelSpectrogram';
 import {EventEmitter} from 'eventemitter3';
 
 /**
- * MelFeatureNode.
+ * MelSpectrogramNode.
  */
-export class MelFeatureNode extends AudioWorkletNode {
+export class MelSpectrogramNode extends AudioWorkletNode {
 
   emitter = new EventEmitter();
 
   constructor(context, config: SpecParams) {
-    super(context, 'mel-feature-processor');
-    // Listen to messages from the MelFeatureProcessor.
+    super(context, 'mel-spectrogram-processor');
+    // Listen to messages from the MelSpectrogramProcessor.
     this.port.onmessage = this.handleMessage.bind(this);
 
-    // Send configuration parameters to the MelFeatureProcessor.
+    // Send configuration parameters to the MelSpectrogramProcessor.
     this.port.postMessage({config});
   }
 
@@ -22,7 +22,7 @@ export class MelFeatureNode extends AudioWorkletNode {
       const spec = event.data.features;
       console.log(`Mel spec of size ${spec.length} x ${spec[0].length}.`);
 
-      this.emitter.emit('features', spec);
+      this.emitter.emit('spectrogram', spec);
     }
   }
 }

@@ -103,7 +103,13 @@ const specParams = {
   fMin: 30,
   nMels: 229
 };
-const streamFeature = new StreamingFeatureExtractor(specParams);
+
+const streamParams = {
+  duration: 2,
+  delay: 1,
+};
+
+const streamFeature = new StreamingFeatureExtractor(specParams, streamParams);
 
 streamEl.addEventListener('click', e => {
   if (streamFeature.isStreaming) {
@@ -112,7 +118,8 @@ streamEl.addEventListener('click', e => {
   } else {
     streamFeature.start();
     streamFeature.on('feature', melSpec => {
-      const melSpecEl = plotSpectrogram(melSpec, hopLength,
+      const nativeHopLength = hopLength * (44100.0 / 16000.0);
+      const melSpecEl = plotSpectrogram(melSpec, nativeHopLength,
         createLayout('Mel energy spectrogram', 'time (s)', 'mel bin'));
       outEl.innerHTML = '';
       outEl.appendChild(melSpecEl);

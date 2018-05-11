@@ -110,18 +110,6 @@ export default class AudioUtils {
     return out;
   }
 
-  /**
-   * Given STFT energies, calculates the MFCC spectrogram.
-   */
-  static mfccSpectrogram(stftEnergies: Float32Array[], melCount=20) {
-    // For each fft slice, calculate the corresponding MFCC values.
-    const out = [];
-    for (let i = 0; i < stftEnergies.length; i++) {
-      out[i] = this.mfcc(stftEnergies[i], melCount);
-    }
-    return out;
-  }
-
   static lazyCreateMelFilterbank(length: number, melCount=20, lowHz=300, highHz=8000, sr=SR) {
     // Lazy-create a Mel filterbank.
     if (!melFilterbank || melFilterbank.length != length) {
@@ -271,18 +259,6 @@ export default class AudioUtils {
       win[i] = 1 - (i - peakIndex) * deltaDown;
     }
     return win;
-  }
-
-  /**
-   * Calculate MFC coefficients from FFT energies.
-   */
-  static mfcc(fftEnergies: Float32Array, melCount=20, lowHz=300, highHz=8000, sr=SR) {
-    this.lazyCreateMelFilterbank(fftEnergies.length, melCount, lowHz, highHz, sr);
-
-    // Apply the mel filterbank to the FFT magnitudes.
-    const melEnergies = this.applyFilterbank(fftEnergies, melFilterbank);
-    // Go from mel coefficients to MFCC.
-    return this.cepstrumFromEnergySpectrum(melEnergies);
   }
 
   static normalizeSpecInPlace(spec, normMin=0, normMax=1) {

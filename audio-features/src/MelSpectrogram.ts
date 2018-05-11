@@ -1,6 +1,6 @@
 import * as FFT from 'fft.js';
 
-interface SpecParams {
+export interface SpecParams {
   sampleRate: number;
   hopLength?: number;
   winLength?: number;
