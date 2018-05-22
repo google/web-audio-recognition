@@ -1243,7 +1243,6 @@ function logGtZero(val) {
 function resample(audioBuffer, targetSr) {
     const sourceSr = audioBuffer.sampleRate;
     const lengthRes = audioBuffer.length * targetSr / sourceSr;
-    console.log(window.OfflineAudioContext);
     const offlineCtx = new OfflineAudioContext(1, lengthRes, targetSr);
     return new Promise((resolve, reject) => {
         const bufferSource = offlineCtx.createBufferSource();
@@ -2033,6 +2032,7 @@ function pow2LessThan(value) {
 
 Object.defineProperty(exports, "__esModule", { value: true });
 const eventemitter3_1 = __webpack_require__(/*! eventemitter3 */ "./node_modules/eventemitter3/index.js");
+;
 /**
  * MelSpectrogramNode.
  */

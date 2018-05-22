@@ -1,6 +1,18 @@
 import {SpecParams} from '../MelSpectrogram';
 import {EventEmitter} from 'eventemitter3';
 
+declare class AudioWorkletPort {
+  onmessage(callback: (message: string) => void): void;
+  postMessage(data: any): void;
+};
+
+
+declare class AudioWorkletNode extends AudioNode {
+  constructor(context: AudioContext, name: string);
+
+  port: AudioWorkletPort;
+}
+
 /**
  * MelSpectrogramNode.
  */

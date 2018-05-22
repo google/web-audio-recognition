@@ -17,7 +17,6 @@ import * as resampler from 'audio-resampler';
 
 const SR = 44100;
 
-
 let melFilterbank = null;
 let context = null;
 
@@ -341,7 +340,6 @@ function logGtZero(val) {
 export function resample(audioBuffer: AudioBuffer, targetSr: number) {
   const sourceSr = audioBuffer.sampleRate;
   const lengthRes = audioBuffer.length * targetSr/sourceSr;
-  console.log(window.OfflineAudioContext);
   const offlineCtx = new OfflineAudioContext(1, lengthRes, targetSr);
 
   return new Promise((resolve, reject) => {

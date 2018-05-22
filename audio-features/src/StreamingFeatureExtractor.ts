@@ -27,7 +27,6 @@ interface StreamParams {
   delay: number;
 };
 
-
 const audioCtx = new AudioContext();
 /**
  * Opens an audio stream and extracts Mel spectrogram from it, suitable for

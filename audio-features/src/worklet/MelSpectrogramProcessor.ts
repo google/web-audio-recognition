@@ -3,6 +3,18 @@ import CircularAudioBuffer from '../CircularAudioBuffer';
 import {resample} from '../AudioUtils';
 import {Resampler} from '../Resampler';
 
+declare var sampleRate: number;
+declare var currentTime: number;
+declare function registerProcessor(label: string, processor: AudioWorkletProcessor): void;
+
+declare class AudioWorkletPort {
+  onmessage(callback: (message: string) => void): void;
+  postMessage(data: any): void;
+};
+declare class AudioWorkletProcessor {
+  port: AudioWorkletPort;
+}
+
 export class MelSpectrogramProcessor extends AudioWorkletProcessor {
   // How many samples per buffer (in processed sample rate).
   winLength = 2048;
@@ -16,6 +28,7 @@ export class MelSpectrogramProcessor extends AudioWorkletProcessor {
   totalSamples = 0;
 
   lastUpdate: number;
+  timer: Timer;
 
   constructor() {
     super();
@@ -63,7 +76,6 @@ export class MelSpectrogramProcessor extends AudioWorkletProcessor {
     console.log(`Received configuration params: ${JSON.stringify(params)}.`);
     this.winLength = params.winLength;
     this.hopLength = params.hopLength;
-    this.nFft = params.nFft;
 
     // Leave some room for extra samples there.
     this.circularBuffer = new CircularAudioBuffer(this.winLengthNative * 2);

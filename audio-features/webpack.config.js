@@ -79,6 +79,10 @@ var worklet = {
   plugins: [
     new LiveReloadPlugin()
   ],
+
+  externals: {
+    "plotly": "Plotly",
+  },
 };
 
 

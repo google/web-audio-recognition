@@ -1266,6 +1266,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const melspec = __webpack_require__(/*! ../MelSpectrogram */ "./src/MelSpectrogram.ts");
 const CircularAudioBuffer_1 = __webpack_require__(/*! ../CircularAudioBuffer */ "./src/CircularAudioBuffer.ts");
 const Resampler_1 = __webpack_require__(/*! ../Resampler */ "./src/Resampler.ts");
+;
 class MelSpectrogramProcessor extends AudioWorkletProcessor {
     constructor() {
         super();
@@ -1313,7 +1314,6 @@ class MelSpectrogramProcessor extends AudioWorkletProcessor {
         console.log(`Received configuration params: ${JSON.stringify(params)}.`);
         this.winLength = params.winLength;
         this.hopLength = params.hopLength;
-        this.nFft = params.nFft;
         // Leave some room for extra samples there.
         this.circularBuffer = new CircularAudioBuffer_1.default(this.winLengthNative * 2);
         console.log(`Created CircularAudioBuffer.`);

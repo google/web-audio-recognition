@@ -107,7 +107,7 @@ function plotImage(stft, samplesPerSlice, layout) {
       x: xArr,
       y: yArr,
       z: zArr,
-      type: 'heatmap'
+      type: 'heatmap' as 'heatmap'
     }
   ];
   Plotly.newPlot(out, data, layout);
