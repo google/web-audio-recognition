@@ -26,6 +26,22 @@ const OUTPUT_LABELS = ["silence", "unknown", "yes", "no", "up", "down", "left",
     "right", "on", "off", "stop", "go"];
 const NUM_SAMPLES: number = 16000;
 
+
+// TODO: put these into a const variable
+// This method exists because nFft increments when
+// these params, stored as a const variable, are passed through melSpectrogram()
+export function specParams(){
+  return {
+    sampleRate: 16000,
+    hopLength: 192,
+    winLength: 512,
+    nFft: 512,     
+    nMels: 128,
+    power: 2.0,
+    fMin: 30.0,
+  };
+}
+
 /**
  * Decodes a selected .wav file, computes its spectrogram and
  * passes it through the speech command network
@@ -36,19 +52,41 @@ export function forwardPassWav(
   const decodedWav = wav.decode(wavBuffer);
   const samples = samplesToLength(decodedWav.channelData[0], NUM_SAMPLES);
 
-  const melSpec = melSpectrogram(samples, {
-    sampleRate: 16000,
-    hopLength: 192,
-    winLength: 512,
-    nFft: 512, // This increments when these params are stored as a const 
-    nMels: 128,
-    power: 2.0,
-    fMin: 30.0,}
-  );
+  const melSpec = melSpectrogram(samples, specParams());
+  let arrMelSpec: number[][] = prepareMelspec(melSpec);
+  forwardPass(arrMelSpec, promisedModel);
+}
 
-  // Convert Float32Array[] to number[][] and swap dims and transpose
-  // TODO: return appropriate number[][] in MelSpectrogram.ts code 
-  // intead of processing here
+export function forwardPassFloatArr(
+    arr: Float32Array[], promisedModel: Promise<FrozenModel>) {
+  let melSpec: number[][] = prepareMelspec(arr);
+  forwardPass(melSpec, promisedModel);
+}
+
+/** 
+ * Performs a forward pass through the network and returns the
+ * softmax outputs.
+ */
+function forwardPass(melSpec: number[][], promisedModel: Promise<FrozenModel>) {
+  // Forward pass input through neural network
+  const inputTensor = tf.tensor(melSpec, );
+  console.log(inputTensor);
+  promisedModel.then(function(m) {
+    let startTime: any = new Date();
+    let prediction: any = m.execute({fingerprint_input: inputTensor});
+    prediction = prediction as tf.Tensor;
+    prediction = prediction.dataSync();
+    let endTime: any = new Date();
+    console.log(`Time to predict: ${endTime - startTime}ms`);
+
+    displayPrediction(OUTPUT_LABELS, prediction);
+  });
+}
+
+/** Convert Float32Array[] to number[][] and swap dims and transpose */
+// TODO: return appropriate number[][] in MelSpectrogram.ts code 
+// intead of processing here
+function prepareMelspec(melSpec: Float32Array[]): number[][]{
   const mels = melSpec[0].length;
   const times = melSpec.length;
   let arrMelSpec: number[][] = [];
@@ -61,17 +99,5 @@ export function forwardPassWav(
     }
   }
 
-  // Forward pass input through neural network
-  const inputTensor = tf.tensor(arrMelSpec, );
-  console.log(inputTensor);
-  promisedModel.then(function(m) {
-    let startTime: any = new Date();
-    let prediction: any = m.execute({fingerprint_input: inputTensor});
-    prediction = prediction as tf.Tensor;
-    prediction = prediction.dataSync();
-    let endTime: any = new Date();
-    console.log(`Time to predict: ${endTime - startTime}ms`);
-
-    displayPrediction(OUTPUT_LABELS, prediction);
-  });
+  return arrMelSpec;
 }

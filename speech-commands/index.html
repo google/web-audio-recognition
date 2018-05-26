@@ -4,10 +4,11 @@
   </head>
   <body>
     This page uses a tensorflow.js model to recognize voice commands.<br>
-    Select a file <del>or stream audio from your mic</del> to have it processed entirely in the browser.<br>
+    Select a file or stream audio from your mic to have it processed entirely in the browser.<br>
     <small>Note: If the results aren't showing up, the model is still loading -- just wait.</small><br><br>
 
-    <input type="file" id="file-input" >
+    <input type="file" id="file-input">
+    <button id="stream-btn">Stream</button>
 
     <table id="results-table">
       <thead>
