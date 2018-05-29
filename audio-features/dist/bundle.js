@@ -1259,6 +1259,24 @@ function resample(audioBuffer, targetSr) {
     });
 }
 exports.resample = resample;
+/**
+ * Pads or cuts audio samples to a length
+ * @param samples audio samples to pad or cut
+ * @param length desired length
+ */
+function samplesToLength(samples, length) {
+    if (samples.length > length) {
+        samples = samples.slice(0, length);
+    }
+    else if (samples.length < length) {
+        let padded = new Float32Array(length);
+        padded.set(samples);
+        padded.set(new Float32Array(length - samples.length).fill(0), samples.length);
+        samples = padded;
+    }
+    return samples;
+}
+exports.samplesToLength = samplesToLength;
 
 
 /***/ }),

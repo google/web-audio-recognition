@@ -14,27 +14,27 @@
  * the License.
  */
 
+import * as UI from './ui';
 import {loadFrozenModel, FrozenModel} from '@tensorflow/tfjs-converter';
 import {forwardPassWav, forwardPassFloatArr, specParams} from './model';
-import StreamingFeatureExtractor 
+import StreamingFeatureExtractor
     from '../../audio-features/src/StreamingFeatureExtractor';
 
-const HOSTNAME = 'http://localhost:8000/';
+
+const HOSTNAME = '../';
 const MODEL_NAME = 'model2';
 const MODEL_URL = HOSTNAME + 'models/' + MODEL_NAME + '/tensorflowjs_model.pb';
-const WEIGHTS_URL = HOSTNAME + 'models/' + MODEL_NAME + 
+const WEIGHTS_URL = HOSTNAME + 'models/' + MODEL_NAME +
     '/weights_manifest.json';
 const ASSET_PATH = HOSTNAME + 'assets/left0.wav';
 
 const streamParams = {
   duration: 2.7096742,
-  delay: 1,
+  delay: 0.1,
 }
 
-/**
- * Run the selected .wav file through the neural network
- */
-function forwardPassSelectedFile(e: any, promisedModel: Promise<FrozenModel>) {
+/** Run the selected .wav file through the neural network */
+function forwardPassSelectedFile(e: any, model: FrozenModel) {
   var file = e.target.files[0];
   if (!file) {
     return;
@@ -43,36 +43,42 @@ function forwardPassSelectedFile(e: any, promisedModel: Promise<FrozenModel>) {
   var fileReader = new FileReader();
   fileReader.onload = e => {
     const arrayBuffer = e.target.result;
-    forwardPassWav(arrayBuffer, promisedModel);
+    forwardPassWav(arrayBuffer, model);
   };
 
   fileReader.readAsArrayBuffer(file);
 }
 
-const streamFeature = new StreamingFeatureExtractor(specParams(), streamParams);
-const model = loadFrozenModel(MODEL_URL, WEIGHTS_URL);
+/** Stream audio through model */
+function streamButtonOnClick(e: any, model: FrozenModel) {
+  let streamButton = e.target;
+  if(streamFeature.isStreaming) {
+    streamFeature.stop();
+    streamButton.innerHTML = 'Stream';
+    UI.hidePrediction();
+  } else {
+    streamFeature.start();
+    streamFeature.on('feature', melSpec => {
+      // Predict and display stream
+      forwardPassFloatArr(melSpec, model);
+    })
+    streamButton.innerHTML = 'Stop Streaming';
+  }
+}
 
-window.onload = () => {
+const streamFeature = new StreamingFeatureExtractor(specParams(), streamParams);
+window.onload = async () => {
+  UI.initUi();
+  UI.hideInputs();
+  const model: FrozenModel = await loadFrozenModel(MODEL_URL, WEIGHTS_URL);
+  UI.modelLoaded();
+
   const fileInput = document.getElementById('file-input');
   const streamButton = document.getElementById('stream-btn');
 
-  fileInput.addEventListener(
-    'change', 
-    e => forwardPassSelectedFile(e, model), 
-    false);
+  fileInput.addEventListener('change', e => forwardPassSelectedFile(e, model),
+      false);
 
-  streamButton.addEventListener('click', e => {
-    if(streamFeature.isStreaming) {
-      streamFeature.stop();
-      streamButton.innerHTML = 'Stream';
-    } else {
-      streamFeature.start();
-      streamFeature.on('feature', melSpec => {
-        // Predict stream
-        forwardPassFloatArr(melSpec, model); 
-      })
-      streamButton.innerHTML = 'Stop Streaming';
-    }
-  })
+  streamButton.addEventListener('click', e => streamButtonOnClick(e, model));
 
 };
