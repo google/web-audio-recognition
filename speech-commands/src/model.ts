@@ -46,8 +46,7 @@ export function specParams(){
  * Decodes a selected .wav file, computes its spectrogram and
  * passes it through the speech command network
  */
-export function forwardPassWav(
-    wavBuffer: ArrayBuffer, model: FrozenModel) {
+export function forwardPassWav(wavBuffer: ArrayBuffer, model: FrozenModel) {
 
   const decodedWav = wav.decode(wavBuffer);
   const samples = samplesToLength(decodedWav.channelData[0], NUM_SAMPLES);
@@ -70,7 +69,6 @@ export function forwardPassFloatArr(
 function forwardPass(melSpec: number[][], model: FrozenModel) {
   // Forward pass input through neural network
   const inputTensor = tf.tensor(melSpec, );
-  console.log(inputTensor);
   let startTime: any = new Date();
 
   let prediction: any = model.execute({fingerprint_input: inputTensor});
@@ -86,7 +84,7 @@ function forwardPass(melSpec: number[][], model: FrozenModel) {
 /** Convert Float32Array[] to number[][] and swap dims and transpose */
 // TODO: return appropriate number[][] in MelSpectrogram.ts code
 // intead of processing here
-function prepareMelspec(melSpec: Float32Array[]): number[][]{
+function prepareMelspec(melSpec: Float32Array[]): number[][] {
   const mels = melSpec[0].length;
   const times = melSpec.length;
   let arrMelSpec: number[][] = [];

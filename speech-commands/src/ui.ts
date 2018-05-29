@@ -14,24 +14,48 @@
  * the License.
  */
 
-export function displayPrediction(labels: any, values: any) {
-  let contents: string = "";
-  let tableBody = <HTMLTableElement>
-      document.getElementById('results-table-body');
-  let row: any;
-  let cell: any;
-  let newTableBody = document.createElement('tbody');
-  newTableBody.setAttribute('id', 'results-table-body');
+import '../../inference-demo/src/components/ConfidenceIndicator';
 
-  for (let i=0; i < labels.length; i+= 1){
-    row = newTableBody.insertRow(-1);
-    cell = row.insertCell(0);
-    cell.innerHTML = labels[i].toString();
-    cell = row.insertCell(1);
-    cell.innerHTML = values[i].toFixed(3).toString();
-    console.log(contents);
+let levelsEl;
+let levelAnimationId;
+export function initUi() {
+  levelsEl = document.getElementById('levels') as HTMLElement;
+  levelAnimationId = null;
+};
+
+function animateLevelLoop(labels: any, confidences: any) {
+  for (let i=0; i < labels.length; i++) {
+    let label = labels[i];
+    let confidence = confidences[i];
+    const indicatorEl = getOrCreateConfidenceIndicator(label, label.toUpperCase());
+    indicatorEl.setAttribute('level', confidence);
   }
-  tableBody.parentNode.replaceChild(newTableBody, tableBody);
+
+  levelAnimationId = requestAnimationFrame(
+      () => animateLevelLoop(labels, confidences));
+}
+
+function getOrCreateConfidenceIndicator(command: string, title: string) {
+  let outEl = document.querySelector(`.${command}`);
+  if (!outEl) {
+    outEl = document.createElement('confidence-indicator');
+    outEl.setAttribute('title', title);
+    outEl.setAttribute('level', '0.5');
+    outEl.className = command;
+    levelsEl.appendChild(outEl);
+  }
+  return outEl;
+}
+
+export function displayPrediction(labels: any, values: any) {
+  levelsEl.style.display = 'block';
+  levelAnimationId = requestAnimationFrame(
+      () => animateLevelLoop(labels, values));
+}
+
+export function hidePrediction() {
+  levelsEl.style.display = 'none';
+  cancelAnimationFrame(levelAnimationId);
 }
 
 export function hideInputs() {
