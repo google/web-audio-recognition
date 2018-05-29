@@ -16,7 +16,7 @@
 
 export function displayPrediction(labels: any, values: any) {
   let contents: string = "";
-  let tableBody = <HTMLTableElement> 
+  let tableBody = <HTMLTableElement>
       document.getElementById('results-table-body');
   let row: any;
   let cell: any;
@@ -32,4 +32,22 @@ export function displayPrediction(labels: any, values: any) {
     console.log(contents);
   }
   tableBody.parentNode.replaceChild(newTableBody, tableBody);
+}
+
+export function hideInputs() {
+  let fileInput = document.getElementById('file-input');
+  let streamBtn = document.getElementById('stream-btn');
+
+  fileInput.style.display = "none";
+  streamBtn.style.display = "none";
+}
+
+export function modelLoaded() {
+  let fileInput = document.getElementById('file-input');
+  let streamBtn = document.getElementById('stream-btn');
+  let loadingText = document.getElementById('loading');
+
+  fileInput.style.display = "block";
+  streamBtn.style.display = "block";
+  loadingText.style.display = "none";
 }
