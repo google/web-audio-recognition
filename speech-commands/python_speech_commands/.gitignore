@@ -1,0 +1,8 @@
+trained_models/*
+frozen_models/*
+web_models/*
+
+unfrozen_logdir/*
+js_stuff/*
+*.pyc
+*.swp
