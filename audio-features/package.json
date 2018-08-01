@@ -5,6 +5,7 @@
   "main": "webpack.config.js",
   "scripts": {
     "dev": "webpack --watch",
+    "build": "webpack",
     "test": "mocha -r ts-node/register --reporter spec test/test.ts"
   },
   "author": "Boris Smus <boris@smus.com> (http://smus.com)",
